@@ -12,11 +12,29 @@ logs
 tables
 backup
 data_splits
+cohorts
 
 # testing ground
 testground*
 deprecated
 debug*
+*random_explore*
 
-#dask
-dask-worker-space
+#oprediction_utils
+*.npz
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+/__pycache__/*
+*.pyc
+*.chk
+*.tar.gz
+*.log
+*.RData
+*.swp
+.idea
+*.err
+*.out
+*.egg*
+*deprecated*
+*dask-worker-space*
+*.DS_Store

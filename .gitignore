@@ -1,0 +1,22 @@
+# notebooks
+.ipynb_checkpoints
+__pycache__
+.jupyter_symlinks
+
+# date & artifacts
+data
+features
+artifacts
+figures
+logs
+tables
+backup
+data_splits
+
+# testing ground
+testground*
+deprecated
+debug*
+
+#dask
+dask-worker-space

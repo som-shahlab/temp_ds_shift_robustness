@@ -3,7 +3,21 @@ import pandas as pd
 import yaml
 import os
 import shutil
+import argparse
+import pickle
 
+def str2bool(v):
+    """
+    Converts strings to booleans (e.g., 't' -> True)
+    """
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def yaml_write(x, path):
     """

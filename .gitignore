@@ -18,6 +18,7 @@ testground*
 deprecated
 debug*
 *random_explore*
+*sanity_check*
 
 #oprediction_utils
 *.npz

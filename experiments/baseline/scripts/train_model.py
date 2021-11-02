@@ -16,6 +16,7 @@ from sklearn.linear_model import LogisticRegression as lr
 from prediction_utils.pytorch_utils.datasets import ArrayLoaderGenerator
 from prediction_utils.pytorch_utils.models import FixedWidthModel
 from prediction_utils.pytorch_utils.metrics import StandardEvaluator
+from prediction_utils.util import str2bool
 
 from tune_model import (
     read_file, 
@@ -90,6 +91,13 @@ parser.add_argument(
     type = int,
     default = 44,
     help = "seed for deterministic training"
+)
+
+parser.add_argument(
+    "--overwrite",
+    type = str2bool,
+    default = "false",
+    help = "whether to overwrite existing artifacts",
 )
 
 #-------------------------------------------------------------------
@@ -239,64 +247,65 @@ for task in args.tasks:
     
     df = pd.DataFrame()
     for i in range(args.n_models):
-        m = FixedWidthModel(
-            input_dim = features.shape[1], 
-            **hparams
-        )
         
-        m.train(train_loaders,phases=['train','val'])
+        if all([
+            os.path.exists(f"{fpath}/{f}") for f in 
+            [f'model_{i}',f'model_{i}_train_scores.csv','hparams.yml']
+        ]) and not args.overwrite:
+
+            print("Artifacts exist and args.overwrite is set to False. Skipping...")
+            continue
+
+        elif not all([
+            os.path.exists(f"{fpath}/{f}") for f in 
+            [f'model_{i}',f'model_{i}_train_scores.csv','hparams.yml']
+        ]) or args.overwrite: 
         
-        m.save_weights(f"{fpath}/model_{i}")
-        
-        all_groups = [2009,2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021]
-        groups = [args.train_group] + [[y] for y in all_groups if y not in args.train_group]
-        
-        for group in groups:
-            print(f'Evaluating model in group {group}')
-            test_loaders = get_torch_data_loaders(
-                task,
-                group,
-                index_year,
-                row_id_map,
-                features,
-                val_fold='val',
-                test_fold='test'
+            m = FixedWidthModel(
+                input_dim = features.shape[1], 
+                **hparams
             )
 
-            idf = m.predict(test_loaders,phases=['test'])['outputs']
-            idf['task'] = task
-            idf['train_groups'] = '_'.join([str(x) for x in args.train_group])
-            idf['test_group'] = '_'.join([str(x) for x in group])
-            idf['train_iter'] = i
-            
-            
-            
-            df = pd.concat((df,idf))
+            evals_epoch = m.train(train_loaders,phases=['train','val'])['performance']
+
+            # save weights & train scores
+            m.save_weights(f"{fpath}/model_{i}")
+
+            evals_epoch.to_csv(
+                f"{fpath}/model_{i}_train_scores.csv"
+            )
+
+            all_groups = [2009,2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021]
+            groups = [args.train_group] + [[y] for y in all_groups if y not in args.train_group]
+
+            for group in groups:
+                print(f'Evaluating model in group {group}')
+                test_loaders = get_torch_data_loaders(
+                    task,
+                    group,
+                    index_year,
+                    row_id_map,
+                    features,
+                    val_fold='val',
+                    test_fold='test'
+                )
+
+                idf = m.predict(test_loaders,phases=['test'])['outputs']
+                idf['task'] = task
+                idf['train_groups'] = '_'.join([str(x) for x in args.train_group])
+                idf['test_group'] = '_'.join([str(x) for x in group])
+                idf['train_iter'] = i
+
+
+
+                df = pd.concat((df,idf))
+
+                yaml.dump(
+                    hparams,
+                    open(f"{fpath}/hparams.yml","w")
+                )
     
-    yaml.dump(
-        hparams,
-        open(f"{fpath}/hparams.yml","w")
-    )
-
-    # add additional group info from row_id_map
-    df = df.merge(
-        row_id_map[[
-            'features_row_id',
-            'age_group',
-            'race_eth', 
-            'gender_concept_name',
-            'race_eth_raw', 
-            'race_eth_gender', 
-            'race_eth_age_group',
-            'race_eth_gender_age_group', 
-            'race_eth_raw_gender',
-            'race_eth_raw_age_group', 
-            'race_eth_raw_gender_age_group',
-        ]],
-        left_on='row_id',
-        right_on='features_row_id'
-    )
-
+    
     # save predictions
     folder_name = '_'.join([
         args.model,
@@ -316,5 +325,36 @@ for task in args.tasks:
     )
 
     os.makedirs(fpath, exist_ok=True)
+    
+    if all([
+        os.path.exists(f"{fpath}/{f}") for f in 
+        [f'{file_name}.csv']
+    ]) and not args.overwrite:
 
-    df.reset_index(drop=True).to_csv(f"{fpath}/{file_name}.csv")
+        print("Artifacts exist and args.overwrite is set to False. Skipping...")
+        continue
+
+    elif not all([
+        os.path.exists(f"{fpath}/{f}") for f in 
+        [f'{file_name}.csv']
+    ]) or args.overwrite: 
+        # add additional group info from row_id_map
+        df = df.merge(
+            row_id_map[[
+                'features_row_id',
+                'age_group',
+                'race_eth', 
+                'gender_concept_name',
+                'race_eth_raw', 
+                'race_eth_gender', 
+                'race_eth_age_group',
+                'race_eth_gender_age_group', 
+                'race_eth_raw_gender',
+                'race_eth_raw_age_group', 
+                'race_eth_raw_gender_age_group',
+            ]],
+            left_on='row_id',
+            right_on='features_row_id'
+        )
+
+        df.reset_index(drop=True).to_csv(f"{fpath}/{file_name}.csv")

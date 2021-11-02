@@ -11,6 +11,8 @@ import numpy as np
 from prediction_utils.pytorch_utils.metrics import StandardEvaluator
 from tune_model import read_file
 
+from prediction_utils.util import str2bool
+
 #------------------------------------
 # Arg parser
 #------------------------------------
@@ -65,6 +67,13 @@ parser.add_argument(
     type = int,
     default = 4,
     help = "num jobs"
+)
+
+parser.add_argument(
+    "--overwrite",
+    type = str2bool,
+    default = "false",
+    help = "whether to overwrite existing artifacts",
 )
 
 #-------------------------------------------------------------------
@@ -152,17 +161,31 @@ for task in args.tasks:
     train_group = df['train_groups'].unique()[0]
     
     for k,v in strata_vars_dict.items():
-        df_eval = evaluator.bootstrap_evaluate(
-            df,
-            strata_vars_eval=v+['train_iter'],
-            strata_vars_boot=['labels'],
-            strata_var_replicate='train_iter',
-            replicate_aggregation_mode='mean',
-            patient_id_var='row_id',
-            n_boot=args.n_boot,
-            n_jobs=args.n_jobs,
-            strata_var_experiment='test_group', 
-            baseline_experiment_name=train_group
-        )
         
-        df_eval.to_csv(f"{fpath}/by_{k}.csv",index=False)
+        if all([
+            os.path.exists(f"{fpath}/{f}") for f in 
+            [f'by_{k}.csv']
+        ]) and not args.overwrite:
+
+            print("Artifacts exist and args.overwrite is set to False. Skipping...")
+            continue
+
+        elif not all([
+            os.path.exists(f"{fpath}/{f}") for f in 
+            [f'by_{k}.csv']
+        ]) or args.overwrite: 
+            
+            df_eval = evaluator.bootstrap_evaluate(
+                df,
+                strata_vars_eval=v+['train_iter'],
+                strata_vars_boot=['labels'],
+                strata_var_replicate='train_iter',
+                replicate_aggregation_mode='mean',
+                patient_id_var='row_id',
+                n_boot=args.n_boot,
+                n_jobs=args.n_jobs,
+                strata_var_experiment='test_group', 
+                baseline_experiment_name=train_group
+            )
+
+            df_eval.to_csv(f"{fpath}/by_{k}.csv",index=False)

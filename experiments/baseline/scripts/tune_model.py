@@ -15,6 +15,7 @@ from sklearn.model_selection import ParameterGrid
 
 from prediction_utils.pytorch_utils.datasets import ArrayLoaderGenerator
 from prediction_utils.pytorch_utils.models import FixedWidthModel
+from prediction_utils.util import str2bool
 
 #------------------------------------
 # Arg parser
@@ -105,6 +106,13 @@ parser.add_argument(
     type = int,
     default = 44,
     help = "seed for deterministic training"
+)
+
+parser.add_argument(
+    "--overwrite",
+    type = str2bool,
+    default = "false",
+    help = "whether to overwrite existing artifacts",
 )
 
 #-------------------------------------------------------------------
@@ -286,21 +294,8 @@ if __name__ == "__main__":
             for i,hparams in enumerate(hparams_grid):
 
                 print(hparams) 
-
-                ## train & get outputs
-                m = FixedWidthModel(
-                    input_dim = features.shape[1], 
-                    **hparams
-                )
-
-                evals_epoch = m.train(loaders,phases=['train','val'])['performance']
-
-                df = m.predict(loaders,phases=['val'])['outputs']
-
-                df['task'] = task
-                df['train_groups'] = '_'.join([str(x) for x in args.train_group])
-
-                # save model & params
+                
+                ## check if path exists save model & params
                 model_name = '_'.join([
                     args.model,
                     '_'.join([str(x) for x in args.train_group]),
@@ -320,19 +315,46 @@ if __name__ == "__main__":
                 )
 
                 os.makedirs(fpath,exist_ok=True)
+                
+                if all([
+                    os.path.exists(f"{fpath}/{f}") for f in 
+                    ['model','train_scores.csv','hparams.yml','val_pred_probs.csv']
+                ]) and not args.overwrite:
+                    
+                    print("Artifacts exist and args.overwrite is set to False. Skipping...")
+                    continue
+                
+                elif not all([
+                    os.path.exists(f"{fpath}/{f}") for f in 
+                    ['model','train_scores.csv','hparams.yml','val_pred_probs.csv']
+                ]) or args.overwrite: 
 
-                m.save_weights(f"{fpath}/model")
+                    ## train & get outputs
+                    m = FixedWidthModel(
+                        input_dim = features.shape[1], 
+                        **hparams
+                    )
 
-                yaml.dump(
-                    hparams,
-                    open(f"{fpath}/hparams.yml","w")
-                )
+                    evals_epoch = m.train(loaders,phases=['train','val'])['performance']
 
-                evals_epoch.to_csv(
-                    f"{fpath}/train_scores.csv"
-                )
+                    df = m.predict(loaders,phases=['val'])['outputs']
 
-                df.reset_index(drop=True).to_csv(
-                    f"{fpath}/val_pred_probs.csv"
-                )
+                    df['task'] = task
+                    df['train_groups'] = '_'.join([str(x) for x in args.train_group])
+                    
+                    # save
+                    m.save_weights(f"{fpath}/model")
+
+                    yaml.dump(
+                        hparams,
+                        open(f"{fpath}/hparams.yml","w")
+                    )
+
+                    evals_epoch.to_csv(
+                        f"{fpath}/train_scores.csv"
+                    )
+
+                    df.reset_index(drop=True).to_csv(
+                        f"{fpath}/val_pred_probs.csv"
+                    )
 

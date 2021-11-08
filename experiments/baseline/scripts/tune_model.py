@@ -159,10 +159,10 @@ def get_data(features_fpath, cohort_fpath, cohort_id):
     return vocab, features, row_id_map
 
 
-def get_torch_data_loaders(task,train_group,index_year,row_id_map,features,val_fold,test_fold=['test']):
+def get_torch_data_loaders(task,train_group,index_year,row_id_map,features,val_fold,test_fold=['test'],ignore_fold=['ignore']):
     
     config_dict = {
-        'batch_size': 256,
+        'batch_size': 512,
         'sparse_mode': 'list',
         'row_id_col': 'features_row_id',
         'input_dim': features.shape[1],
@@ -176,7 +176,7 @@ def get_torch_data_loaders(task,train_group,index_year,row_id_map,features,val_f
     # that have died in the hospital
     input_row_id_map = row_id_map.query(
         f"{index_year} == @train_group and \
-        {task}_fold_id != ['ignore']"
+        {task}_fold_id != @ignore_fold"
     )
     
     input_row_id_map = input_row_id_map.assign(
@@ -274,7 +274,10 @@ if __name__ == "__main__":
         ## get model hyperparameters
         hparams_grid = get_hparams(args)
         
-        for fold in range(1,args.n_fold+1):
+        folds = row_id_map[f"{task}_fold_id"].unique().tolist()
+        folds = [x for x in folds if x not in ['ignore','val','test']]
+        
+        for fold in folds:
             
             # train models
             print(f"fold number {fold}") 
@@ -287,7 +290,7 @@ if __name__ == "__main__":
                 row_id_map,
                 features,
                 fold,
-                test_fold=['test','val'],
+                ignore_fold=['ignore','val'],
             )
 
             ## loop through hyperparameter settings

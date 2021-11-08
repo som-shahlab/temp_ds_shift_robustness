@@ -83,7 +83,7 @@ parser.add_argument(
 parser.add_argument(
     "--n_models",
     type=int,
-    default=10
+    default=5
 )
 
 parser.add_argument(

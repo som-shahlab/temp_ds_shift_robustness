@@ -11,17 +11,17 @@ import pandas as pd
 import numpy as np
 
 from scipy.sparse import csr_matrix as csr
-from sklearn.linear_model import LogisticRegression as lr
 
 from prediction_utils.pytorch_utils.datasets import ArrayLoaderGenerator
-from prediction_utils.pytorch_utils.models import FixedWidthModel
+from prediction_utils.pytorch_utils.group_fairness import group_regularized_model
+from prediction_utils.pytorch_utils.robustness import group_robust_model
 from prediction_utils.pytorch_utils.metrics import StandardEvaluator
-from prediction_utils.util import str2bool
 
 from tune_model import (
     read_file, 
     get_data,
     get_torch_data_loaders,
+    get_hparams
 )
     
 
@@ -29,14 +29,28 @@ from tune_model import (
 # Arg parser
 #------------------------------------
 parser = argparse.ArgumentParser(
-    description = "Evaluate best lr model"
+    description = "train models with domain generalization"
 )
 
 parser.add_argument(
     "--artifacts_fpath",
     type = str,
-    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/experiments/baseline/artifacts",
+    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/experiments/dg/artifacts",
     help = "path to save artifacts"
+)
+
+parser.add_argument(
+    "--baseline_artifacts_fpath",
+    type=str,
+    default='/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/experiments/baseline/artifacts',
+    help="path to model hyperparameters - same as baseline NN models"
+)
+
+parser.add_argument(
+    "--algo_hparams_fpath",
+    type=str,
+    default='/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/experiments/dg/hyperparams',
+    help="path to dg hyperparameters"
 )
 
 parser.add_argument(
@@ -68,9 +82,10 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--model",
+    "--algo",
     type=str,
-    default="nn"
+    default="irm",
+    help="algo to use [irm,dro,coral,adversarial]"
 )
 
 parser.add_argument(
@@ -87,17 +102,16 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--n_searches",
+    type=int,
+    default=50
+)
+
+parser.add_argument(
     "--seed",
     type = int,
     default = 44,
     help = "seed for deterministic training"
-)
-
-parser.add_argument(
-    "--overwrite",
-    type = str2bool,
-    default = "false",
-    help = "whether to overwrite existing artifacts",
 )
 
 #-------------------------------------------------------------------
@@ -129,6 +143,7 @@ evaluator = StandardEvaluator(metrics=['loss_bce'])
 for task in args.tasks:
     
     print(f"task: {task}")
+    print(f"algo: {args.algo}")
     
     # assign index_year & features_fpath
     if task == 'readmission_30':
@@ -142,138 +157,88 @@ for task in args.tasks:
     vocab, features, row_id_map = get_data(features_fpath, args.cohort_fpath, args.cohort_id)
 
     print(f"Grabbing model performance for {task}")
+    
+    # grab hparams
+    hparams_grid = get_hparams(task,args)
+    
+    for j, hparams in enumerate(hparams_grid):
+        
+        # refit model with all training data
+        print(f"Fitting model with hparams {hparams}")
 
-    # set path
-    fpath = os.path.join(
-        args.artifacts_fpath,
-        task,
-        "models",
-        '_'.join([
-            args.model,
+        # prune features
+        file_name = '_'.join([
+            "nn",
             '_'.join([str(x) for x in args.train_group]),
         ])
-    )
 
-    # grab all files from path
-    all_models = [
-        x for x in os.listdir(fpath)
-        if 'best' not in x
-    ]
+        fpath = os.path.join(
+            args.baseline_artifacts_fpath,
+            task,
+            'preprocessor',
+        )
 
-    df = pd.concat([
-        pd.read_csv(f"{fpath}/{x}/val_pred_probs.csv").assign(
-            model_num=x.split('_')[0],
-            fold_id=''.join(
-                re.findall(
-                    r'\d+',
-                    x.split('_')[1]
-                )
-            )
-        ) 
-        for x in all_models
-    ])
-    
-    
-    # find best hparam setting based on log loss
-    df_eval = evaluator.evaluate(
-        df,
-        strata_vars=['model_num','fold_id']
-    )
+        vocab = pd.read_csv(f"{fpath}/{file_name}.csv")
+        sel_features = features[:,vocab.index[vocab['keep_feature']==1]]
 
-    df_eval = df_eval.groupby(['metric','model_num']).agg(
-        mean_performance=('performance','mean')
-    ).reset_index()
+        # generate torch loaders
+        train_loaders = get_torch_data_loaders(
+            task,
+            args.train_group,
+            index_year,
+            row_id_map,
+            sel_features,
+            val_fold='val',
+            test_fold='test',
+            group_var_name=index_year
+        )
 
-    model_num = float(df_eval.loc[
-        df_eval.query("metric=='loss_bce'")['mean_performance'].idxmin(),
-        'model_num'
-    ])
-    
-    # grab model hparams
-    hparams = yaml.load(
-        open(f"{fpath}/{int(model_num)}_fold1/hparams.yml"),
-        Loader=yaml.FullLoader
-    )
-        
-    # refit model with all training data
-    print(f"Refitting model number {model_num} with hparams {hparams}")
-    
-    # prune features
-    file_name = '_'.join([
-        args.model,
-        '_'.join([str(x) for x in args.train_group]),
-    ])
+        # save path
+        folder_name = '_'.join([
+            args.algo,
+            '_'.join([str(x) for x in args.train_group]),
+        ])
 
-    fpath = os.path.join(
-        args.artifacts_fpath,
-        task,
-        'preprocessor',
-    )
+        model_name = '_'.join([
+            "sweep",
+            str(int(j)),
+        ])
 
-    vocab = pd.read_csv(f"{fpath}/{file_name}.csv")
-    features = features[:,vocab.index[vocab['keep_feature']==1]]
-    
-    # generate torch loaders
-    train_loaders = get_torch_data_loaders(
-        task,
-        args.train_group,
-        index_year,
-        row_id_map,
-        features,
-        val_fold='val',
-        test_fold='test'
-    )
-    
-    # save path
-    folder_name = '_'.join([
-        args.model,
-        '_'.join([str(x) for x in args.train_group]),
-    ])
+        fpath = os.path.join(
+            args.artifacts_fpath,
+            task,
+            'models',
+            folder_name,
+            model_name
+        )
 
-    model_name = '_'.join([
-        "best_model",
-        str(int(model_num)),
-    ])
+        os.makedirs(fpath,exist_ok=True)
 
-    fpath = os.path.join(
-        args.artifacts_fpath,
-        task,
-        'models',
-        folder_name,
-        model_name
-    )
+        df = pd.DataFrame()
+        for i in range(args.n_models):
 
-    os.makedirs(fpath,exist_ok=True)
-    
-    df = pd.DataFrame()
-    for i in range(args.n_models):
-        
-        if all([
-            os.path.exists(f"{fpath}/{f}") for f in 
-            [f'model_{i}',f'model_{i}_train_scores.csv','hparams.yml']
-        ]) and not args.overwrite:
+            if args.algo=='adversarial':
+                hparams['output_dim_discriminator']=len(args.train_group)
+                m = group_regularized_model("adversarial")
 
-            print("Artifacts exist and args.overwrite is set to False. Skipping...")
-            continue
+            elif args.algo=='dro':
+                hparams['num_groups']=len(args.train_group)
+                m = group_robust_model()
 
-        elif not all([
-            os.path.exists(f"{fpath}/{f}") for f in 
-            [f'model_{i}',f'model_{i}_train_scores.csv','hparams.yml']
-        ]) or args.overwrite: 
-        
-            m = FixedWidthModel(
-                input_dim = features.shape[1], 
+            elif args.algo=='irm':
+                m = group_regularized_model("group_irm")
+
+            elif args.algo=='coral':
+                m = group_regularized_model("group_coral")
+
+            m = m(
+                input_dim = sel_features.shape[1], 
                 **hparams
             )
 
-            evals_epoch = m.train(train_loaders,phases=['train','val'])['performance']
+            m.train(train_loaders,phases=['train','val'])
 
-            # save weights & train scores
             m.save_weights(f"{fpath}/model_{i}")
-
-            evals_epoch.to_csv(
-                f"{fpath}/model_{i}_train_scores.csv"
-            )
 
             all_groups = [2009,2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021]
             groups = [args.train_group] + [[y] for y in all_groups if y not in args.train_group]
@@ -285,9 +250,10 @@ for task in args.tasks:
                     group,
                     index_year,
                     row_id_map,
-                    features,
+                    sel_features,
                     val_fold='val',
-                    test_fold='test'
+                    test_fold='test',
+                    group_var_name=index_year
                 )
 
                 idf = m.predict(test_loaders,phases=['test'])['outputs']
@@ -295,49 +261,15 @@ for task in args.tasks:
                 idf['train_groups'] = '_'.join([str(x) for x in args.train_group])
                 idf['test_group'] = '_'.join([str(x) for x in group])
                 idf['train_iter'] = i
-
-
+                idf['lambda'] = hparams['lr_lambda'] if args.algo=='dro' else hparams['lambda_group_regularization']
 
                 df = pd.concat((df,idf))
 
-                yaml.dump(
-                    hparams,
-                    open(f"{fpath}/hparams.yml","w")
-                )
-    
-    
-    # save predictions
-    folder_name = '_'.join([
-        args.model,
-        '_'.join([str(x) for x in args.train_group])
-    ])
+        yaml.dump(
+            hparams,
+            open(f"{fpath}/hparams.yml","w")
+        )
 
-    file_name = '_'.join([
-        "best_model",
-        str(int(model_num)),
-    ]) 
-
-    fpath = os.path.join(
-        args.artifacts_fpath,
-        task,
-        'pred_probs',
-        folder_name
-    )
-
-    os.makedirs(fpath, exist_ok=True)
-    
-    if all([
-        os.path.exists(f"{fpath}/{f}") for f in 
-        [f'{file_name}.csv']
-    ]) and not args.overwrite:
-
-        print("Artifacts exist and args.overwrite is set to False. Skipping...")
-        continue
-
-    elif not all([
-        os.path.exists(f"{fpath}/{f}") for f in 
-        [f'{file_name}.csv']
-    ]) or args.overwrite: 
         # add additional group info from row_id_map
         df = df.merge(
             row_id_map[[
@@ -356,5 +288,25 @@ for task in args.tasks:
             left_on='row_id',
             right_on='features_row_id'
         )
+
+        # save predictions
+        folder_name = '_'.join([
+            args.algo,
+            '_'.join([str(x) for x in args.train_group])
+        ])
+
+        file_name = '_'.join([
+            "sweep",
+            str(int(j)),
+        ]) 
+
+        fpath = os.path.join(
+            args.artifacts_fpath,
+            task,
+            'pred_probs',
+            folder_name
+        )
+
+        os.makedirs(fpath, exist_ok=True)
 
         df.reset_index(drop=True).to_csv(f"{fpath}/{file_name}.csv")

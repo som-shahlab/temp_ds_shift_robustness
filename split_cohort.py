@@ -7,7 +7,7 @@ import pdb
 import pandas as pd
 import numpy as np
 
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import KFold
 
 #------------------------------------
 # Arg parser
@@ -59,9 +59,9 @@ def read_file(filename, columns=None, **kwargs):
 def split_cohort_by_year(
         df,
         seed,
-        task='hospital_mortality',
         patient_col='person_id',
         index_year='admission_year',
+        tasks=['hospital_mortality','LOS_7','readmission_30','icu_admission'],
         val_frac=0.15,
         test_frac=0.15,
         nfold=5
@@ -74,18 +74,18 @@ def split_cohort_by_year(
     df['discharge_year']=df['discharge_date'].dt.year
     
     # Split into train, val, and test
-    test = df.groupby([index_year,task]).sample(
+    test = df.groupby(['admission_year']).sample(
         frac=val_frac+test_frac,
         random_state = seed
     ).assign(**{
-        f"{task}_fold_id":'test'
+        f"fold_id":'test'
     })
     
-    val = test.groupby([index_year,task]).sample(
+    val = test.groupby(['admission_year']).sample(
         frac=val_frac/(val_frac+test_frac),
         random_state = seed
     ).assign(**{
-        f"{task}_fold_id":'val'
+        f"fold_id":'val'
     })
     
     test = test.drop(index=val.index)
@@ -94,30 +94,35 @@ def split_cohort_by_year(
     train = df.drop(index=test.index)
     
     # split train into kfolds
-    skf = StratifiedKFold(
+    kf = KFold(
         n_splits=nfold,
         shuffle=True,
         random_state=seed
     )
     
-    years = df[index_year].unique()
+    years = df['admission_year'].unique()
     
     for year in years:
-        itrain = train.query(f"{index_year}==@year")
+        itrain = train.query(f"admission_year==@year")
         c=0
         
-        for _, val_ids in skf.split(itrain[patient_col], itrain[task]):
+        for _, val_ids in kf.split(itrain[patient_col]):
             c+=1
 
             test = test.append(
                 itrain.iloc[val_ids,:].assign(**{
-                    f"{task}_fold_id":str(c)
+                    f"fold_id":str(c)
                 })
             )
     
-    if task == 'readmission_30':
-        test.loc[test['hospital_mortality']==1,f'{task}_fold_id']='ignore'
-        test.loc[test['hospital_mortality']==1,f'{task}']= np.nan
+    for task in tasks:
+        assert(task in test.columns)
+        
+        test[f"{task}_fold_id"]=test['fold_id']
+        
+        if task == 'readmission_30':
+            test.loc[test['hospital_mortality']==1,f'{task}_fold_id']='ignore'
+            test.loc[test['hospital_mortality']==1,f'{task}']= np.nan
         
     return test.sort_index()
     
@@ -138,17 +143,11 @@ if __name__ == "__main__":
         engine='pyarrow'
     )
     
-    # split for each task
-    for task in args.tasks:
- 
-        cohort = split_cohort_by_year(
-            cohort,
-            args.seed,
-            task=task,
-            index_year='discharge_year' 
-                if task=='readmission_30' 
-                else 'admission_year',
-        )
+    # split cohort
+    cohort = split_cohort_by_year(
+        cohort,
+        args.seed
+    )
 
     # save splitted cohort
     cohort.to_parquet(

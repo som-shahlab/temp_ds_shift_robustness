@@ -10,24 +10,25 @@ import pandas as pd
 import numpy as np
 
 from scipy.sparse import csr_matrix as csr
-from sklearn.linear_model import LogisticRegression as lr
 from sklearn.model_selection import ParameterGrid
 
 from prediction_utils.pytorch_utils.datasets import ArrayLoaderGenerator
-from prediction_utils.pytorch_utils.models import FixedWidthModel
+from prediction_utils.pytorch_utils.group_fairness import group_regularized_model
+from prediction_utils.pytorch_utils.robustness import group_robust_model
+
 from prediction_utils.util import str2bool
 
 #------------------------------------
 # Arg parser
 #------------------------------------
 parser = argparse.ArgumentParser(
-    description = "Train Logistic Regression or NN Models"
+    description = "Train FCNN models with domain generalization across various hyperparameter settings"
 )
 
 parser.add_argument(
     "--artifacts_fpath",
     type = str,
-    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/experiments/baseline/artifacts",
+    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/experiments/dg/artifacts",
     help = "path to save artifacts"
 )
 
@@ -60,17 +61,24 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--hparams_fpath",
+    "--baseline_artifacts_fpath",
     type=str,
-    default='/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/experiments/baseline/hyperparams',
-    help="path to hyperparameters"
+    default='/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/experiments/baseline/artifacts',
+    help="path to model hyperparameters - same as baseline NN models"
 )
 
 parser.add_argument(
-    "--model",
+    "--algo_hparams_fpath",
     type=str,
-    default="nn",
-    help="model to train [nn,lr]"
+    default='/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/experiments/dg/hyperparams',
+    help="path to dg hyperparameters"
+)
+
+parser.add_argument(
+    "--algo",
+    type=str,
+    default="irm",
+    help="algo to use [irm,dro,coral,adversarial]"
 )
 
 parser.add_argument(
@@ -88,17 +96,17 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--n_fold",
-    type=int,
-    default=5,
-    help="number of cross-validation folds"
-)
-
-parser.add_argument(
     "--prep_prune_thresh",
     type=int,
     default=25,
     help="minimum number of observations for each feature"
+)
+
+parser.add_argument(
+    "--n_fold",
+    type=int,
+    default=5,
+    help="fold_id"
 )
 
 parser.add_argument(
@@ -159,7 +167,17 @@ def get_data(features_fpath, cohort_fpath, cohort_id):
     return vocab, features, row_id_map
 
 
-def get_torch_data_loaders(task,train_group,index_year,row_id_map,features,val_fold,test_fold=['test'],ignore_fold=['ignore']):
+def get_torch_data_loaders(
+    task,
+    train_group,
+    index_year,
+    row_id_map,
+    features,
+    val_fold,
+    test_fold=['test'],
+    group_var_name=None,
+    ignore_fold=['ignore'],
+):
     
     config_dict = {
         'batch_size': 512,
@@ -169,6 +187,8 @@ def get_torch_data_loaders(task,train_group,index_year,row_id_map,features,val_f
         'label_col': task,
         'fold_id': val_fold,
         'fold_id_test':test_fold,
+        'group_var_name':group_var_name,
+        'include_group_in_dataset':True if group_var_name is not None else False
     }
     
     # grab only data from train_group & remove rows with "ignored" flag
@@ -189,21 +209,49 @@ def get_torch_data_loaders(task,train_group,index_year,row_id_map,features,val_f
     
     return loader_generator.init_loaders()
 
-def get_hparams(args):
+def get_hparams(task,args):
     
-    param_grid = yaml.load(
+    # load algo hparam grid
+    algo_param_grid = yaml.load(
         open(
             os.path.join(
-                args.hparams_fpath,
-                f"{args.model}.yml"
+                args.algo_hparams_fpath,
+                f"{args.algo}.yml"
             ),
             'r'
         ), 
         Loader = yaml.FullLoader
     )
     
-    param_grid = list(ParameterGrid(param_grid))
+    # load best model hparam setting
+    fpath = os.path.join(
+        args.baseline_artifacts_fpath,
+        f"{task}",
+        "models",
+        '_'.join([
+            "nn",
+            '_'.join([str(x) for x in args.train_group]),
+        ])
+    )
+    
+    model_name = [x for x in os.listdir(fpath) if "best_model" in x] 
+    assert(len(model_name)==1)
+    
+    model_param = yaml.load(
+        open(
+            os.path.join(
+                fpath,
+                model_name[0],
+                "hparams.yml",
+            ),
+            'r'
+        ), 
+        Loader = yaml.FullLoader
+    )
+    
+    param_grid = list(ParameterGrid(algo_param_grid))
     np.random.shuffle(param_grid)
+    param_grid = [{**model_param, **x} for x in param_grid]
     
     if args.n_searches < len(param_grid):
         param_grid=param_grid[:args.n_searches]
@@ -229,9 +277,9 @@ if __name__ == "__main__":
     args.train_group = [int(x) for x in args.train_group.split("/")]
 
     for task in args.tasks:
-        
         print(f"task: {task}")
-        
+        print(f"algo: {args.algo}")
+              
         # assign index_year & features_fpath
         if task == 'readmission_30':
             index_year = 'discharge_year'
@@ -243,42 +291,29 @@ if __name__ == "__main__":
         # get data
         vocab, features, row_id_map = get_data(features_fpath, args.cohort_fpath, args.cohort_id)
         
-        # prune features using train set
-        all_train_ids = row_id_map.query(
-            f"{index_year} == @args.train_group and \
-            {task}_fold_id != ['test','val','ignore']"
-        )
-        vocab['keep_feature'] = np.array(features[all_train_ids['features_row_id']].sum(
-            axis=0
-        )>args.prep_prune_thresh*1)[0]
-        
-        # save pruned features list
+        # prune features
         file_name = '_'.join([
-            args.model,
+            "nn",
             '_'.join([str(x) for x in args.train_group]),
         ])
-        
+
         fpath = os.path.join(
-            args.artifacts_fpath,
+            args.baseline_artifacts_fpath,
             task,
             'preprocessor',
         )
 
-        os.makedirs(fpath,exist_ok=True)
-        
-        vocab.to_csv(f"{fpath}/{file_name}.csv")
-        
-        # prune features
+        vocab = pd.read_csv(f"{fpath}/{file_name}.csv")
         features = features[:,vocab.index[vocab['keep_feature']==1]]
         
         ## get model hyperparameters
-        hparams_grid = get_hparams(args)
+        hparams_grid = get_hparams(task,args)
         
         folds = row_id_map[f"{task}_fold_id"].unique().tolist()
         folds = [x for x in folds if x not in ['ignore','val','test']]
         
         for fold in folds:
-            
+        
             # train models
             print(f"fold number {fold}") 
 
@@ -290,6 +325,8 @@ if __name__ == "__main__":
                 row_id_map,
                 features,
                 fold,
+                test_fold=['test','val'],
+                group_var_name=index_year,
                 ignore_fold=['ignore','val'],
             )
 
@@ -300,7 +337,7 @@ if __name__ == "__main__":
                 
                 ## check if path exists save model & params
                 model_name = '_'.join([
-                    args.model,
+                    args.algo,
                     '_'.join([str(x) for x in args.train_group]),
                 ])
 
@@ -316,8 +353,6 @@ if __name__ == "__main__":
                     model_name,
                     model_num
                 )
-
-                os.makedirs(fpath,exist_ok=True)
                 
                 if all([
                     os.path.exists(f"{fpath}/{f}") for f in 
@@ -331,9 +366,25 @@ if __name__ == "__main__":
                     os.path.exists(f"{fpath}/{f}") for f in 
                     ['model','train_scores.csv','hparams.yml','val_pred_probs.csv']
                 ]) or args.overwrite: 
-
+                    
+                    os.makedirs(fpath,exist_ok=True)
+                    
                     ## train & get outputs
-                    m = FixedWidthModel(
+                    if args.algo=='adversarial':
+                        hparams['output_dim_discriminator']=len(args.train_group)
+                        m = group_regularized_model("adversarial")
+
+                    elif args.algo=='dro':
+                        hparams['num_groups']=len(args.train_group)
+                        m = group_robust_model()
+
+                    elif args.algo=='irm':
+                        m = group_regularized_model("group_irm")
+
+                    elif args.algo=='coral':
+                        m = group_regularized_model("group_coral")
+
+                    m = m(
                         input_dim = features.shape[1], 
                         **hparams
                     )
@@ -343,9 +394,10 @@ if __name__ == "__main__":
                     df = m.predict(loaders,phases=['val'])['outputs']
 
                     df['task'] = task
+                    df['algo'] = args.algo
                     df['train_groups'] = '_'.join([str(x) for x in args.train_group])
-                    
-                    # save
+
+                    ## save weights, hparams, train_scores, and predictions on validation set
                     m.save_weights(f"{fpath}/model")
 
                     yaml.dump(
@@ -356,6 +408,7 @@ if __name__ == "__main__":
                     evals_epoch.to_csv(
                         f"{fpath}/train_scores.csv"
                     )
+
 
                     df.reset_index(drop=True).to_csv(
                         f"{fpath}/val_pred_probs.csv"

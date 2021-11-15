@@ -11,17 +11,17 @@ import pandas as pd
 import numpy as np
 
 from scipy.sparse import csr_matrix as csr
-from sklearn.linear_model import LogisticRegression as lr
 
 from prediction_utils.pytorch_utils.datasets import ArrayLoaderGenerator
-from prediction_utils.pytorch_utils.models import FixedWidthModel
+from prediction_utils.pytorch_utils.group_fairness import group_regularized_model
+from prediction_utils.pytorch_utils.robustness import group_robust_model
 from prediction_utils.pytorch_utils.metrics import StandardEvaluator
 from prediction_utils.util import str2bool
 
 from tune_model import (
     read_file, 
     get_data,
-    get_torch_data_loaders,
+    get_torch_data_loaders
 )
     
 
@@ -29,14 +29,21 @@ from tune_model import (
 # Arg parser
 #------------------------------------
 parser = argparse.ArgumentParser(
-    description = "Evaluate best lr model"
+    description = "train models with domain generalization"
 )
 
 parser.add_argument(
     "--artifacts_fpath",
     type = str,
-    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/experiments/baseline/artifacts",
+    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/experiments/dg/artifacts",
     help = "path to save artifacts"
+)
+
+parser.add_argument(
+    "--baseline_artifacts_fpath",
+    type=str,
+    default='/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/experiments/baseline/artifacts',
+    help="path to model hyperparameters - same as baseline NN models"
 )
 
 parser.add_argument(
@@ -68,9 +75,10 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--model",
+    "--algo",
     type=str,
-    default="nn"
+    default="irm",
+    help="algo to use [irm,dro,coral,adversarial]"
 )
 
 parser.add_argument(
@@ -129,6 +137,7 @@ evaluator = StandardEvaluator(metrics=['loss_bce'])
 for task in args.tasks:
     
     print(f"task: {task}")
+    print(f"algo: {args.algo}")
     
     # assign index_year & features_fpath
     if task == 'readmission_30':
@@ -149,7 +158,7 @@ for task in args.tasks:
         task,
         "models",
         '_'.join([
-            args.model,
+            args.algo,
             '_'.join([str(x) for x in args.train_group]),
         ])
     )
@@ -157,7 +166,7 @@ for task in args.tasks:
     # grab all files from path
     all_models = [
         x for x in os.listdir(fpath)
-        if 'best' not in x
+        if 'best' not in x and 'sweep' not in x
     ]
 
     df = pd.concat([
@@ -200,12 +209,12 @@ for task in args.tasks:
     
     # prune features
     file_name = '_'.join([
-        args.model,
+        "nn",
         '_'.join([str(x) for x in args.train_group]),
     ])
 
     fpath = os.path.join(
-        args.artifacts_fpath,
+        args.baseline_artifacts_fpath,
         task,
         'preprocessor',
     )
@@ -221,12 +230,13 @@ for task in args.tasks:
         row_id_map,
         features,
         val_fold='val',
-        test_fold='test'
+        test_fold='test',
+        group_var_name=index_year
     )
     
     # save path
     folder_name = '_'.join([
-        args.model,
+        args.algo,
         '_'.join([str(x) for x in args.train_group]),
     ])
 
@@ -259,9 +269,23 @@ for task in args.tasks:
         elif not all([
             os.path.exists(f"{fpath}/{f}") for f in 
             [f'model_{i}',f'model_{i}_train_scores.csv','hparams.yml']
-        ]) or args.overwrite: 
+        ]) or args.overwrite:
         
-            m = FixedWidthModel(
+            if args.algo=='adversarial':
+                hparams['output_dim_discriminator']=len(args.train_group)
+                m = group_regularized_model("adversarial")
+
+            elif args.algo=='dro':
+                hparams['num_groups']=len(args.train_group)
+                m = group_robust_model()
+
+            elif args.algo=='irm':
+                m = group_regularized_model("group_irm")
+
+            elif args.algo=='coral':
+                m = group_regularized_model("group_coral")
+
+            m = m(
                 input_dim = features.shape[1], 
                 **hparams
             )
@@ -287,7 +311,8 @@ for task in args.tasks:
                     row_id_map,
                     features,
                     val_fold='val',
-                    test_fold='test'
+                    test_fold='test',
+                    group_var_name=index_year
                 )
 
                 idf = m.predict(test_loaders,phases=['test'])['outputs']
@@ -296,19 +321,16 @@ for task in args.tasks:
                 idf['test_group'] = '_'.join([str(x) for x in group])
                 idf['train_iter'] = i
 
-
-
                 df = pd.concat((df,idf))
 
-                yaml.dump(
-                    hparams,
-                    open(f"{fpath}/hparams.yml","w")
-                )
-    
-    
+            yaml.dump(
+                hparams,
+                open(f"{fpath}/hparams.yml","w")
+            )
+
     # save predictions
     folder_name = '_'.join([
-        args.model,
+        args.algo,
         '_'.join([str(x) for x in args.train_group])
     ])
 
@@ -338,6 +360,7 @@ for task in args.tasks:
         os.path.exists(f"{fpath}/{f}") for f in 
         [f'{file_name}.csv']
     ]) or args.overwrite: 
+    
         # add additional group info from row_id_map
         df = df.merge(
             row_id_map[[

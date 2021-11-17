@@ -10,6 +10,7 @@ import matplotlib.patches as patches
 from matplotlib.ticker import MaxNLocator
 from matplotlib.pyplot import savefig
 from matplotlib.ticker import FormatStrFormatter
+from sklearn.calibration import calibration_curve
 
 def get_result_table(
     train_year,
@@ -282,5 +283,200 @@ def plot_rel_ood_perf(
 
     #sns.despine(offset=10, trim = True)
     if save_path is not None:
+        os.makedirs(save_path, exist_ok=True)
         plt.savefig(save_path, dpi=save_res_dpi)
     plt.show()
+    
+    
+def plot_calibration_curves(
+    tasks,
+    algos,
+    ax_lims,
+    ood_groups=['2019','2020','2021'],
+    id_group='2009_2010_2011_2012',
+    id_group_label='09-12',
+    n_bins=20,
+    artifacts_fpath='/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/experiments/dg/artifacts',
+    baseline_artifacts_fpath='/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/experiments/baseline/artifacts',
+    save_path=None,
+    save_res_dpi=300,
+    figsize=(12,15),
+    legend_bbox_to_anchor=(0.4,-0.3),
+    legend_ncols=5
+    ):
+
+    fig, axes = plt.subplots(
+        nrows=len(algos),
+        ncols = len(tasks),
+        figsize=figsize
+    )
+    
+    for r,algo in enumerate(algos):
+        for c,task in enumerate(tasks):
+            if algo=='erm':
+                fpath = os.path.join(
+                    baseline_artifacts_fpath,
+                    task,
+                    "pred_probs",
+                    f"nn_{id_group}"
+                )
+            else:
+                fpath = os.path.join(
+                    artifacts_fpath,
+                    task,
+                    "pred_probs",
+                    f"{algo}_{id_group}"
+                )
+            fname = [x for x in os.listdir(fpath) if 'best_model' in x]
+            df_probs = pd.read_csv(f"{fpath}/{fname[0]}", dtype={'test_group':'str'}).round(3)
+            id_probs = df_probs.query("test_group==[@id_group]")[['labels','pred_probs']]
+
+            # perfect calibration
+            axes[r][c].plot([0, 1], [0, 1], "k:", label="Perfectly calibrated")
+
+            # ID
+            fraction_of_positives, mean_predicted_value = calibration_curve(
+                id_probs['labels'],
+                id_probs['pred_probs'],
+                n_bins=n_bins,
+                strategy='quantile'
+            )
+
+            axes[r][c].plot(
+                mean_predicted_value, 
+                fraction_of_positives, 
+                "o-", 
+                label=f"ID [{id_group_label}]"
+            )
+
+            for g in ood_groups:
+                # ood pred probs 
+                ood_probs = df_probs.query("test_group==[@g]")[['labels','pred_probs']]
+
+                fraction_of_positives, mean_predicted_value = calibration_curve(
+                    ood_probs['labels'],
+                    ood_probs['pred_probs'],
+                    n_bins=n_bins,
+                    strategy='quantile'
+                )
+
+                axes[r][c].plot(
+                    mean_predicted_value, 
+                    fraction_of_positives, 
+                    "o-", 
+                    label=f"OOD [{g}]"
+                )
+
+            ## axes settings
+            if c==0:
+                axes[r][c].set_ylabel(f"{algos[algo]}\nFraction of positives")
+
+
+            axes[r][c].set_ylim(ax_lims[task])
+            axes[r][c].set_xlim(ax_lims[task])
+
+            if r==0:
+                axes[r][c].set_title(tasks[task])
+            elif r==len(algos)-1:
+                axes[r][c].set_xlabel("Mean Predicted Value")
+            else:
+                axes[r][c].set_title('')
+                axes[r][c].set_xlabel('')
+
+            axes[r][c].set_aspect('equal')
+
+            if c == len(tasks)-1 and r == len(algos)-1:
+                axes[r][c].legend(
+                    bbox_to_anchor=legend_bbox_to_anchor,
+                    ncol=legend_ncols,
+                    frameon=True
+                )
+    plt.show()
+    plt.tight_layout()
+    
+def plot_kde_pred_probs(
+    tasks,
+    algos,
+    outcome=0,
+    ood_groups=['2019','2020','2021'],
+    id_group='2009_2010_2011_2012',
+    id_group_label='09-12',
+    artifacts_fpath='/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/experiments/dg/artifacts',
+    baseline_artifacts_fpath='/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/experiments/baseline/artifacts',
+    save_path=None,
+    save_res_dpi=300,
+    figsize=(15,15),
+    x_lim=[0,0.4],
+    legend_bbox_to_anchor=(0.4,-0.3),
+    legend_ncols=4
+    ):
+
+    fig, axes = plt.subplots(
+        ncols = len(tasks),
+        nrows = len(algos),
+        figsize=figsize,
+    )
+    
+    for r,algo in enumerate(algos):
+        for c,task in enumerate(tasks):
+            if algo=='erm':
+                fpath = os.path.join(
+                    baseline_artifacts_fpath,
+                    task,
+                    "pred_probs",
+                    f"nn_{id_group}"
+                )
+            else:
+                fpath = os.path.join(
+                    artifacts_fpath,
+                    task,
+                    "pred_probs",
+                    f"{algo}_{id_group}"
+                )
+
+            fname = [x for x in os.listdir(fpath) if 'best_model' in x]
+
+            df_probs = pd.read_csv(f"{fpath}/{fname[0]}", dtype={'test_group':'str'}).round(3)
+            id_probs = df_probs.query("test_group==[@id_group] and labels==@outcome")[['labels','pred_probs']].assign(group=f'ID [{id_group_label}]').sample(10000,replace=True)
+
+            ood_probs=pd.DataFrame()
+        
+            for g in ood_groups:
+                ood_probs = pd.concat((
+                    ood_probs,
+                    df_probs.query("test_group==@g and labels==[@outcome]")[
+                        ['labels','pred_probs']
+                    ].assign(
+                        group=f'OOD [{g}]'
+                    ).sample(10000,replace=True)
+                ))
+
+            data = pd.concat((id_probs,ood_probs),ignore_index=True)
+
+            sns.kdeplot(
+                data = data,
+                x = 'pred_probs',
+                hue='group',
+                ax = axes[r][c],
+                cumulative=True,
+                legend=True if c==len(tasks)-1 and r==len(algos)-1 else False
+            )
+
+            ## axes setting
+            axes[r][c].set_xlim(x_lim)
+
+            if c==0:
+                axes[r][c].set_ylabel(f"{algos[algo]}\nDensity")
+            else:
+                axes[r][c].set_ylabel('')
+
+            if r==len(algos)-1:
+                axes[r][c].set_xlabel("Predicted probability")
+            elif r==0:
+                axes[r][c].set_title(f"{tasks[task]}\n(y={outcome})")
+            else:
+                axes[r][c].set_title('')
+                axes[r][c].set_xlabel('')
+
+    plt.show()
+    plt.tight_layout()

@@ -3,10 +3,12 @@
 __pycache__
 .jupyter_symlinks
 
+# dev
+
 # date & artifacts
 data
 features
-artifacts
+*artifacts
 figures
 logs
 tables

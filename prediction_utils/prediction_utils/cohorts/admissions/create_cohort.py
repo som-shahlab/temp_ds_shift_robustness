@@ -42,6 +42,11 @@ parser.add_argument(
     default=0,
 )
 parser.add_argument(
+    "--filter_query",
+    type=str,
+    default="",
+)
+parser.add_argument(
     "--google_application_credentials",
     type=str,
     default=os.path.expanduser("~/.config/gcloud/application_default_credentials.json"),
@@ -59,6 +64,7 @@ if __name__ == "__main__":
     cohort_labeled.create_cohort_table()
 
     cohort_filtered = BQFilterInpatientCohort(**args.__dict__)
+    print(cohort_labeled.get_create_query())
     cohort_filtered.create_cohort_table()
     cohort_df = pd.read_gbq(
         """

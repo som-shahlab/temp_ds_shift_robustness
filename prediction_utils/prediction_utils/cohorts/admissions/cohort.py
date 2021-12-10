@@ -231,9 +231,13 @@ class BQAdmissionOutcomeCohort(BQCohort):
             race_eth_raw AS (
                 {race_eth_raw_query}
             ),
+            end_of_ad_day AS (
+                {end_of_ad_day_query}
+            ),
             cohort_with_labels AS (
                 SELECT *
                 FROM {base_query}
+                LEFT JOIN end_of_ad_day USING (person_id, admit_date, discharge_date)
                 LEFT JOIN mortality_labels USING (person_id, admit_date, discharge_date)
                 LEFT JOIN month_mortality_labels USING (person_id, admit_date, discharge_date)
                 LEFT JOIN LOS_labels USING (person_id, admit_date, discharge_date)
@@ -270,14 +274,41 @@ class BQAdmissionOutcomeCohort(BQCohort):
             "icu_query": self.get_icu_query(),
             "age_query": self.get_age_query(),
             "demographics_query": self.get_demographics_query(),
-            "race_eth_raw_query": self.get_race_eth_raw_query()
+            "race_eth_raw_query": self.get_race_eth_raw_query(),
+            "end_of_ad_day_query":self.get_end_of_ad_day_query(),
         }
         base_query = self.get_base_query()
         return {
             key: value.format_map({**{"base_query": base_query}, **self.config_dict})
             for key, value in query_dict.items()
         }
-
+    
+    def get_end_of_ad_day_query(self):
+        return """
+            WITH temp as (
+                SELECT 
+                    person_id,admit_date,discharge_date,
+                    datetime_add( 
+                        datetime_trunc(
+                            datetime_add(admit_date, INTERVAL 1 day),
+                            day
+                        ),
+                        INTERVAL -1 minute
+                    ) as admit_date_midnight,
+                    datetime_add( 
+                        datetime_trunc(
+                            datetime_add(discharge_date, INTERVAL 1 day),
+                            day
+                        ),
+                        INTERVAL -1 minute
+                    ) as discharge_date_midnight 
+                FROM {base_query} t1
+            )
+            SELECT t1.*, admit_date_midnight, discharge_date_midnight
+            FROM {base_query} t1
+            LEFT JOIN temp USING (person_id, admit_date, discharge_date)
+        """
+        
     def get_hospital_mortality_query(self):
         return """
             WITH temp AS (
@@ -290,7 +321,7 @@ class BQAdmissionOutcomeCohort(BQCohort):
                 RIGHT JOIN {dataset_project}.{dataset}.death AS t2
                     ON t1.person_id = t2.person_id
             )
-            SELECT t1.*, IFNULL(hospital_mortality, 0) as hospital_mortality
+            SELECT t1.*, IFNULL(hospital_mortality, 0) as hospital_mortality, death_date
             FROM {base_query} t1
             LEFT JOIN temp USING (person_id, admit_date, discharge_date)
         """
@@ -354,7 +385,7 @@ class BQAdmissionOutcomeCohort(BQCohort):
                 INNER JOIN temp_readmission_window as t2
                 on t1.person_id = t2.person_id AND t1.row_number = t2.row_number
             )
-            SELECT t1.*, IFNULL(readmission_30, 0) as readmission_30
+            SELECT t1.*, IFNULL(readmission_30, 0) as readmission_30, readmission_window
             FROM {base_query} t1
             LEFT JOIN result USING (person_id, admit_date, discharge_date)
         """
@@ -403,8 +434,8 @@ class BQAdmissionOutcomeCohort(BQCohort):
                icu2 
               WHERE rank_ = 1
             )
-            SELECT t1.*, CASE WHEN icu_start_datetime IS NULL THEN 0 ELSE 1 END as icu_admission
-            FROM som-nero-nigam-starr.lguo_explore.admission_rollup_temp t1
+            SELECT t1.*, CASE WHEN icu_start_datetime IS NULL THEN 0 ELSE 1 END as icu_admission, icu_start_datetime
+            FROM {base_query} t1
             LEFT JOIN icu3 USING (person_id, admit_date, discharge_date)
         """
     
@@ -496,7 +527,8 @@ class BQFilterInpatientCohort(BQCohort):
 
         config_dict["cohort_name_labeled"] = "temp_cohort_labeled"
         config_dict["cohort_name_filtered"] = "temp_cohort_filtered"
-
+        config_dict['filter_query'] = ""
+        
         return config_dict
 
     def get_base_query(self, format_query=True):
@@ -505,6 +537,7 @@ class BQFilterInpatientCohort(BQCohort):
             SELECT * 
             FROM {rs_dataset_project}.{rs_dataset}.{cohort_name_labeled}
             WHERE age_in_years >= 18.0
+            {filter_query}
         )
         """
         if not format_query:

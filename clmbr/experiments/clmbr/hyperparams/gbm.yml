@@ -1,0 +1,21 @@
+learning_rate:
+- 0.1
+- 0.2
+- 0.01
+num_leaves:
+- 100
+- 300
+n_estimators:
+- 1000
+max_depth:
+- -1
+boosting_type:
+- gbdt
+- dart
+- goss
+objective:
+- binary
+metric:
+- binary_logloss
+first_metric_only:
+- True

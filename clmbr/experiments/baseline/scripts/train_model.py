@@ -27,7 +27,7 @@ from tune_model import (
 # Arg parser
 #------------------------------------
 parser = argparse.ArgumentParser(
-    description = "Evaluate best model"
+    description = "Train model on selected hyperparameters"
 )
 
 parser.add_argument(

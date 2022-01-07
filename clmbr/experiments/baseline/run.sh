@@ -60,7 +60,7 @@ JOB_ID=$(cat /proc/sys/kernel/random/uuid)
 # define pipeline
 function pipe {
     
-    # tune model w/ 5-fold cross-validation
+    # hyperparameter sweep
     # executes $N_TASK jobs in parallel
     local k=0
     for (( ij=0; ij<$N_MODELS; ij++ )); do

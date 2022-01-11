@@ -563,6 +563,7 @@ class StandardEvaluator:
         patient_id_var="person_id",
         n_jobs=None,
         verbose=False,
+        return_result_df=False,
     ):
         """
         Arguments
@@ -705,7 +706,11 @@ class StandardEvaluator:
                 )
                 .drop(columns=[result_name])
             )
-        return result_df_ci
+        
+        if return_result_df:
+            return result_df_ci, result_df
+        else:
+            return result_df_ci
 
 
 class FairOVAEvaluator(StandardEvaluator):

@@ -12,7 +12,7 @@ features
 figures
 logs
 tables
-backup
+backup*
 data_splits
 
 # testing ground

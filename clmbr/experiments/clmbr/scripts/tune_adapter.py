@@ -65,6 +65,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--clmbr_encoder",
+    type=str,
+    default='gru',
+    help='gru/transformer',
+)
+
+parser.add_argument(
     "--model",
     type=str,
     default="lr",
@@ -205,7 +212,8 @@ if __name__ == "__main__":
             os.path.join(
                 args.clmbr_artifacts_fpath,
                 "features",
-                "_".join([str(x) for x in args.train_group])
+                "_".join([str(x) for x in args.train_group]),
+                args.clmbr_encoder,
             ), 
             args.cohort_fpath, 
             args.cohort_id
@@ -229,6 +237,7 @@ if __name__ == "__main__":
 
             ## check if path exists save model & params
             model_name = '_'.join([
+                args.clmbr_encoder,
                 args.model,
                 '_'.join([str(x) for x in args.train_group]),
             ])
@@ -292,7 +301,7 @@ if __name__ == "__main__":
                     'labels':y_val,
                     'task':task,
                     'prediction_id':prediction_id_val,
-                    'train_groups':'_'.join([str(x) for x in args.train_group])
+                    'train_groups':'_'.join([str(x) for x in args.train_group]),
                 })
 
                 # save

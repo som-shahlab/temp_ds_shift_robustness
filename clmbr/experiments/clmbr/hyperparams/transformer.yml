@@ -1,0 +1,24 @@
+lr:
+- 0.001
+- 0.0001 
+- 0.00001
+encoder_type:
+- transformer
+size:
+- 800
+dropout:
+- 0
+- 0.1
+- 0.2
+batch_size:
+- 2000
+epochs:
+- 200
+warmup_epochs:
+- 2
+- 10
+- 20
+l2:
+- 0.1
+- 0.01
+- 0.001

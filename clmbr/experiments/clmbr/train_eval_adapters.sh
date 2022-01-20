@@ -15,24 +15,23 @@ mkdir -p ../logs/adapter_eval
 ## -----------------------------------------------------------
 ## --------------------- job specification -------------------
 ## -----------------------------------------------------------
-#TRAIN_GROUPS=(
-#   "2009/2010/2011/2012" 
-#   "2012" "2013" "2014" "2015" "2016" "2017" "2018"
-#   "2010/2011/2012/2013" "2011/2012/2013/2014" 
-#   "2012/2013/2014/2015" "2013/2014/2015/2016"
-#   "2014/2015/2016/2017" "2015/2016/2017/2018"
-#   "2017/2018" "2016/2017/2018"
-#   "2014/2015/2016/2017/2018" 
-#   "2013/2014/2015/2016/2017/2018"
-#   "2012/2013/2014/2015/2016/2017/2018"
-#   "2011/2012/2013/2014/2015/2016/2017/2018"
-#   "2010/2011/2012/2013/2014/2015/2016/2017/2018"
-#   "2009/2010/2011/2012/2013/2014/2015/2016/2017/2018"
-#)
 TRAIN_GROUPS=(
-    "2021" "2016/2017/2018/2019" "2017/2018/2019/2020" "2018/2019/2020/2021"
+   "2009/2010/2011/2012" 
+   #"2012" "2013" "2014" "2015" "2016" "2017" "2018" "2019" "2020"
+   #"2010/2011/2012/2013" "2011/2012/2013/2014" 
+   #"2012/2013/2014/2015" "2013/2014/2015/2016"
+   #"2014/2015/2016/2017" "2015/2016/2017/2018"
+   #"2016/2017/2018/2019" "2017/2018/2019/2020" 
+   #"2018/2019/2020/2021"
+   #"2017/2018" "2016/2017/2018"
+   #"2014/2015/2016/2017/2018" 
+   #"2013/2014/2015/2016/2017/2018"
+   #"2012/2013/2014/2015/2016/2017/2018"
+   #"2011/2012/2013/2014/2015/2016/2017/2018"
+   #"2010/2011/2012/2013/2014/2015/2016/2017/2018"
+   #"2009/2010/2011/2012/2013/2014/2015/2016/2017/2018"
 )
-
+CLMBR_ENCODERS=("gru" "transformer")
 MODELS=("lr" "gbm")
 TASKS=("hospital_mortality" "LOS_7" "readmission_30" "icu_admission")
 N_BOOT=1000
@@ -42,16 +41,17 @@ N_BOOT=1000
 N_JOBS=2
 
 # whether to re-run 
-FEATURIZE_OVERWRITE='False'
-TUNE_OVERWRITE='False'
-TRAIN_OVERWRITE='False'
-EVAL_OVERWRITE='False'
+FEATURIZE_OVERWRITE='True'
+TUNE_OVERWRITE='True'
+TRAIN_OVERWRITE='True'
+EVAL_OVERWRITE='True'
 
 ## -----------------------------------------------------------
 ## ----------------------- job pipeline ----------------------
 ## -----------------------------------------------------------
 
 N_GROUPS=${#TRAIN_GROUPS[@]}
+N_ENCODERS=${#CLMBR_ENCODERS[@]}
 N_TASKS=${#TASKS[@]}
 N_MODELS=${#MODELS[@]}
 
@@ -64,6 +64,7 @@ function pipe {
     # CLMBR featurization
     python -u featurize.py \
         --train_group="$1" \
+        --clmbr_encoder="$2" \
         --overwrite="$FEATURIZE_OVERWRITE" \
         >> "../logs/clmbr_featurize/${1:2:2}-${1: -2}-${TASKS[$t]}-$JOB_ID" 
 
@@ -75,6 +76,7 @@ function pipe {
 
             python -u tune_adapter.py \
                 --tasks=${TASKS[$t]} \
+                --clmbr_encoder="$2" \
                 --model=${MODELS[$ij]} \
                 --train_group="$1" \
                 --overwrite="$TUNE_OVERWRITE" \
@@ -94,6 +96,7 @@ function pipe {
 
             python -u train_adapter.py \
                 --tasks=${TASKS[$t]} \
+                --clmbr_encoder="$2" \
                 --model=${MODELS[$ij]} \
                 --train_group="$1" \
                 --overwrite="$TRAIN_OVERWRITE" \
@@ -113,6 +116,7 @@ function pipe {
 
             python -u evaluate_adapter.py \
                 --tasks=${TASKS[$t]} \
+                --clmbr_encoder="$2" \
                 --model=${MODELS[$ij]} \
                 --train_group="$1" \
                 --n_boot=$N_BOOT \
@@ -131,9 +135,10 @@ function pipe {
 # execute $N_JOBS pipes in parallel
 c=0
 for (( i=0; i<$N_GROUPS; i++ )); do    
-    
-    pipe "${TRAIN_GROUPS[$i]}" &
-    
-    let c+=1
-    [[ $((c%N_JOBS)) -eq 0 ]] && wait
+    for (( j=0; j<$N_ENCODERS; j++ )); do 
+        pipe "${TRAIN_GROUPS[$i]}" "${CLMBR_ENCODERS[$j]}" &
+
+        let c+=1
+        [[ $((c%N_JOBS)) -eq 0 ]] && wait
+    done
 done

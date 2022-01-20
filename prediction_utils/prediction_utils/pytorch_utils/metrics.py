@@ -32,7 +32,7 @@ Evaluators
 
 
 class StandardEvaluator:
-    def __init__(self, metrics=None, threshold_metrics=None, thresholds=None):
+    def __init__(self, metrics=None, threshold_metrics=None, thresholds=None, *args, **kwargs):
         # default behavior: use all metrics, do not use any threshold metrics
         if metrics is None:
             self.metrics = self.get_default_threshold_free_metrics()
@@ -45,6 +45,7 @@ class StandardEvaluator:
             self.thresholds = [float(x) for x in self.thresholds]
 
         self.threshold_metrics = threshold_metrics
+        self.args = {**kwargs}
 
     def evaluate(
         self,
@@ -81,13 +82,16 @@ class StandardEvaluator:
                 pd.DataFrame(
                     {
                         metric: metric_fn(
-                            df[label_var].values, df[pred_prob_var].values
+                            df[label_var].values, 
+                            df[pred_prob_var].values,
+                            **self.args if metric=='auprc_c' else {},
                         )
                         if weight_var is None
                         else metric_fn(
                             df[label_var].values,
                             df[pred_prob_var].values,
                             sample_weight=df[weight_var].values,
+                            **self.args if metric=='auprc_c' else {},
                         )
                         for metric, metric_fn in metric_fns.items()
                     },
@@ -103,13 +107,16 @@ class StandardEvaluator:
                     metric: df.groupby(strata_vars)
                     .apply(
                         lambda x: metric_func(
-                            x[label_var].values, x[pred_prob_var].values
+                            x[label_var].values, 
+                            x[pred_prob_var].values,
+                            **self.args if metric=='auprc_c' else {},
                         )
                         if weight_var is None
                         else metric_func(
                             x[label_var].values,
                             x[pred_prob_var].values,
                             sample_weight=x[weight_var].values,
+                            **self.args if metric=='auprc_c' else {},
                         )
                     )
                     .rename(index=result_name)
@@ -245,6 +252,7 @@ class StandardEvaluator:
         base_metric_dict = {
             "auc": try_roc_auc_score,
             "auprc": average_precision_score,
+            "auprc_c": average_precision_score_calibrated,
             "brier": brier_score_loss,
             "loss_bce": try_log_loss,
             "ece_q_abs": lambda *args, **kwargs: expected_calibration_error(
@@ -1741,6 +1749,118 @@ def outcome_rate(labels, pred_probs=None, sample_weight=None):
     else:
         return np.average(labels)
 
+
+def _binary_clf_curve(y_true, y_score, pos_label=1, sample_weight=None):
+    """Calculate true and false positives per binary classification threshold.
+    Parameters
+    ----------
+    y_true : array, shape = [n_samples]
+        True targets of binary classification
+    y_score : array, shape = [n_samples]
+        Estimated probabilities or decision function
+    pos_label : int or str, default=None
+        The label of the positive class
+    sample_weight : array-like of shape = [n_samples], optional
+        Sample weights.
+    Returns
+    -------
+    fps : array, shape = [n_thresholds]
+        A count of false positives, at index i being the number of negative
+        samples assigned a score >= thresholds[i]. The total number of
+        negative samples is equal to fps[-1] (thus true negatives are given by
+        fps[-1] - fps).
+    tps : array, shape = [n_thresholds <= len(np.unique(y_score))]
+        An increasing count of true positives, at index i being the number
+        of positive samples assigned a score >= thresholds[i]. The total
+        number of positive samples is equal to tps[-1] (thus false negatives
+        are given by tps[-1] - tps).
+    thresholds : array, shape = [n_thresholds]
+        Decreasing score values.
+    """
+    
+    y_true = (y_true == pos_label)
+    
+    # sort scores and corresponding truth values
+    desc_score_indices = np.argsort(y_score, kind="mergesort")[::-1]
+    y_score = y_score[desc_score_indices]
+    y_true = y_true[desc_score_indices]
+    if sample_weight is not None:
+        weight = sample_weight[desc_score_indices]
+    else:
+        weight = 1.
+
+    # y_score typically has many tied values. Here we extract
+    # the indices associated with the distinct values. We also
+    # concatenate a value for the end of the curve.
+    distinct_value_indices = np.where(np.diff(y_score))[0]
+    threshold_idxs = np.r_[distinct_value_indices, y_true.size - 1]
+
+    # accumulate the true positives with decreasing threshold
+    tps = np.cumsum(y_true * weight)[threshold_idxs]
+    if sample_weight is not None:
+        fps = np.cumsum(weight)[threshold_idxs] - tps
+    else:
+        fps = 1 + threshold_idxs - tps
+    return fps, tps, y_score[threshold_idxs]
+    
+    
+def precision_recall_curve(y_true, y_pred, pos_label=None,
+                           sample_weight=None,pi0=None, *args, **kwargs):
+    """Compute precision-recall (with optional calibration) pairs for different probability thresholds
+    This implementation is a modification of scikit-learn "precision_recall_curve" function that adds calibration
+    ----------
+    y_true : array, shape = [n_samples]
+        True binary labels. If labels are not either {-1, 1} or {0, 1}, then
+        pos_label should be explicitly given.
+    probas_pred : array, shape = [n_samples]
+        Estimated probabilities or decision function.
+    pos_label : int or str, default=None
+        The label of the positive class.
+        When ``pos_label=None``, if y_true is in {-1, 1} or {0, 1},
+        ``pos_label`` is set to 1, otherwise an error will be raised.
+    sample_weight : array-like of shape (n_samples,), default=None
+        Sample weights.
+    Returns
+    -------
+    calib_precision : array, shape = [n_thresholds + 1]
+        Calibrated Precision values such that element i is the calibrated precision of
+        predictions with score >= thresholds[i] and the last element is 1.
+    recall : array, shape = [n_thresholds + 1]
+        Decreasing recall values such that element i is the recall of
+        predictions with score >= thresholds[i] and the last element is 0.
+    thresholds : array, shape = [n_thresholds <= len(np.unique(probas_pred))]
+        Increasing thresholds on the decision function used to compute
+        precision and recall.
+    """
+    
+    fps, tps, thresholds = _binary_clf_curve(y_true, y_pred,
+                                             pos_label=pos_label,
+                                             sample_weight=sample_weight)
+    
+   
+    
+    
+    if pi0 is not None:
+        pi = np.sum(y_true)/float(np.array(y_true).shape[0])
+        ratio = pi*(1-pi0)/(pi0*(1-pi))
+        precision = tps / (tps + ratio*fps)
+    else:
+        precision = tps / (tps + fps)
+    
+    precision[np.isnan(precision)] = 0
+        
+    recall = tps / tps[-1]
+
+    # stop when full recall attained
+    # and reverse the outputs so recall is decreasing
+    last_ind = tps.searchsorted(tps[-1])
+    sl = slice(last_ind, None, -1)
+    return np.r_[precision[sl], 1], np.r_[recall[sl], 0], thresholds[sl]
+
+
+def average_precision_score_calibrated(y_true, y_pred, pos_label=1, sample_weight=None,pi0=None, *args,**kwargs):
+        precision, recall, _ = precision_recall_curve(y_true, y_pred, pos_label=pos_label, sample_weight=sample_weight, pi0=pi0, *args, **kwargs)
+        return -np.sum(np.diff(recall) * np.array(precision)[:-1])
 
 def metric_fairness_ova(
     labels,

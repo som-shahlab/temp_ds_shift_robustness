@@ -55,6 +55,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--clmbr_encoder",
+    type=str,
+    default='gru',
+    help='gru/transformer',
+)
+
+parser.add_argument(
     "--model",
     default = 'lr',
     type = str
@@ -104,7 +111,7 @@ np.random.seed(args.seed)
 args.tasks = args.tasks.split("/")
 args.train_group = [int(x) for x in args.train_group.split("/")]
 
-evaluator = StandardEvaluator(metrics=['auc','auprc','loss_bce','ace_abs_logistic_logit'])
+
 
 df_comp = pd.DataFrame()
 
@@ -117,6 +124,7 @@ for task in args.tasks:
         task,
         "pred_probs",
         '_'.join([
+            args.clmbr_encoder,
             args.model,
             '_'.join([str(x) for x in args.train_group]),
         ])
@@ -181,6 +189,7 @@ for task in args.tasks:
         task,
         "eval",
         '_'.join([
+            args.clmbr_encoder,
             args.model,
             '_'.join([str(x) for x in args.train_group]),
         ])
@@ -193,6 +202,11 @@ for task in args.tasks:
     }
     
     train_group = df['train_groups'].unique()[0]
+    
+    evaluator = StandardEvaluator(
+        metrics=['auc','auprc','auprc_c','loss_bce','ace_abs_logistic_logit'],
+        **{'pi0':df.query("test_group==@train_group")['labels'].mean()} # set prior for calibrated auprc
+    )
     
     for k,v in strata_vars_dict.items():
         
@@ -279,17 +293,19 @@ for task in args.tasks:
                 df_comp = pd.concat((df_comp,pd.merge(
                     left = df_eval_clmbr.assign(
                         task=task,
+                        clmbr_encoder=args.clmbr_encoder,
                         model=args.model,
                         boot_num=i_boot,
                         performance_clmbr_delta=df_eval_clmbr['performance_clmbr'] - df_eval_clmbr['performance_clmbr_baseline']
                     ),
                     right = df_eval_base.assign(
                         task=task,
+                        clmbr_encoder=args.clmbr_encoder,
                         model=args.model,
                         boot_num=i_boot,
                         performance_base_delta= df_eval_base['performance_base'] - df_eval_base['performance_base_baseline']
                     ),
-                    on = ['task','model','metric','test_group','boot_num']
+                    on = ['task','clmbr_encoder','model','metric','test_group','boot_num']
                 )))
                 
             df_comp.to_csv(f"{fpath}/by_{k}_comp_rel_ood_with_base.csv",index=False)

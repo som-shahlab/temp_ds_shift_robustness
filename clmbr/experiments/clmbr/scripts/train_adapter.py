@@ -1,4 +1,5 @@
 import os
+import shutil
 import argparse
 import pickle
 import joblib
@@ -61,6 +62,13 @@ parser.add_argument(
     type=str,
     default="hospital_mortality/LOS_7/readmission_30/icu_admission",
     help="prediction tasks"
+)
+
+parser.add_argument(
+    "--clmbr_encoder",
+    type=str,
+    default='gru',
+    help='gru/transformer',
 )
 
 parser.add_argument(
@@ -128,7 +136,8 @@ for task in args.tasks:
         os.path.join(
             args.clmbr_artifacts_fpath,
             "features",
-            "_".join([str(x) for x in args.train_group])
+            "_".join([str(x) for x in args.train_group]),
+            args.clmbr_encoder,
         ), 
         args.cohort_fpath, 
         args.cohort_id
@@ -142,6 +151,7 @@ for task in args.tasks:
         task,
         "models",
         '_'.join([
+            args.clmbr_encoder,
             args.model,
             '_'.join([str(x) for x in args.train_group]),
         ])
@@ -196,6 +206,7 @@ for task in args.tasks:
     
     # save path
     folder_name = '_'.join([
+        args.clmbr_encoder,
         args.model,
         '_'.join([str(x) for x in args.train_group]),
     ])
@@ -212,8 +223,6 @@ for task in args.tasks:
         folder_name,
         model_name
     )
-
-    os.makedirs(fpath,exist_ok=True)
     
     df = pd.DataFrame()
         
@@ -229,6 +238,20 @@ for task in args.tasks:
         os.path.exists(f"{fpath}/{f}") for f in 
         [f'model.pkl','hparams.yml']
     ]) or args.overwrite: 
+        
+        # remove best_model folders
+        fpath_to_remove = os.path.join(
+            args.adapter_artifacts_fpath,
+            task,
+            'models',
+            folder_name,
+        )
+        
+        for f in os.listdir(fpath_to_remove):
+            if 'best_model' in f:
+                shutil.rmtree(os.path.join(fpath_to_remove, f), ignore_errors=True)
+                
+        os.makedirs(fpath,exist_ok=True)
         
         if args.model=='lr':
             
@@ -280,13 +303,14 @@ for task in args.tasks:
                     'prediction_id':prediction_id_test,
                     'task':task,
                     'train_groups':'_'.join([str(x) for x in args.train_group]),
-                    'test_group':test_group
+                    'test_group':test_group,
                 })
             ))
 
     
     # save predictions
     folder_name = '_'.join([
+        args.clmbr_encoder,
         args.model,
         '_'.join([str(x) for x in args.train_group])
     ])
@@ -317,6 +341,10 @@ for task in args.tasks:
         os.path.exists(f"{fpath}/{f}") for f in 
         [f'{file_name}.csv']
     ]) or args.overwrite: 
+        
+        for f in os.listdir(fpath):
+            if 'best_model' in f:
+                os.remove(os.path.join(fpath,f))
         
         # add additional group info from cohort
         cohort_dir = os.path.join(

@@ -7,7 +7,6 @@ source activate /local-scratch/nigam/envs/lguo/temp_ds_shift_robustness
 cd /local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/scripts
 
 # make log folders if not exist
-mkdir -p ../logs/clmbr_featurize
 mkdir -p ../logs/adapter_tune
 mkdir -p ../logs/adapter_train
 mkdir -p ../logs/adapter_eval
@@ -60,13 +59,6 @@ JOB_ID=$(cat /proc/sys/kernel/random/uuid)
 
 # define pipeline
 function pipe {
-
-    # CLMBR featurization
-    python -u featurize.py \
-        --train_group="$1" \
-        --clmbr_encoder="$2" \
-        --overwrite="$FEATURIZE_OVERWRITE" \
-        >> "../logs/clmbr_featurize/${1:2:2}-${1: -2}-${TASKS[$t]}-$JOB_ID" 
 
     # hyperparameter sweep
     # executes $N_TASK jobs in parallel

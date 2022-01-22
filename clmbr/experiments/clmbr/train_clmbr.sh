@@ -10,6 +10,8 @@ cd /local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/experiments
 ## --------------------- job specification -------------------
 ## -----------------------------------------------------------
 
+mkdir -p ../logs/clmbr_featurize
+
 YEARS=("2009/2012")
 
 #YEARS=(
@@ -21,8 +23,10 @@ YEARS=("2009/2012")
 #)
 
 
-ENCODERS=("gru" "transformer")
-OVERWRITE='True'
+ENCODERS=("gru")
+TRAIN_OVERWRITE='False'
+FEATURIZE_OVERWRITE='True'
+
 N_GPU=2
 N_JOBS=15
 
@@ -38,8 +42,14 @@ for (( t=0; t<$N_GROUPS; t++ )); do
         python -u train_clmbr.py \
             --year_range=${YEARS[$t]} \
             --encoder=${ENCODERS[$i]} \
-            --overwrite="$OVERWRITE" \
+            --overwrite="$TRAIN_OVERWRITE" \
             --n_gpu="$N_GPU" \
             --n_jobs="$N_JOBS"
+        
+        python -u featurize.py \
+            --train_group=${YEARS[$t]} \
+            --clmbr_encoder=${ENCODERS[$i]} \
+            --overwrite="$FEATURIZE_OVERWRITE" \
+            >> "../logs/clmbr_featurize/${1:2:2}-${1: -2}-${TASKS[$t]}-$JOB_ID" 
     done
 done

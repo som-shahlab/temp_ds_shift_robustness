@@ -6,6 +6,7 @@ import argparse
 import sys
 import re
 import pickle
+import gzip
 
 import numpy as np
 import pandas as pd
@@ -59,7 +60,7 @@ parser.add_argument(
 parser.add_argument(
     "--train_group", 
     type=str,
-    default = "2009/2010/2011/2012",
+    default = "2009/2012",
     help="group(s) to train on [2009,2010,2011,2012,2013,2014,2015,2016,2017,2018,2019]"
 )
 
@@ -121,7 +122,16 @@ if __name__ == "__main__":
     
     # parse tasks and train_group
     args.tasks = args.tasks.split("/")
-    args.train_group = [int(x) for x in args.train_group.split("/")]
+    
+    args.train_group = [
+        x for x in 
+        range(
+            int(args.train_group.split("/")[0]), 
+            int(args.train_group.split("/")[-1])+1,
+            1
+        )
+    ]
+    
     clmbr_model_year = f"{args.train_group[0]}_{args.train_group[-1]}"
     
     # save dir
@@ -135,7 +145,7 @@ if __name__ == "__main__":
     # check if files exist
     if all([
         os.path.exists(f"{save_dir}/{f}") for f in 
-        ['ehr_ml_patient_ids.pkl','prediction_ids.pkl','day_indices.pkl','labels.pkl','features.pkl']
+        ['ehr_ml_patient_ids.gz','prediction_ids.gz','day_indices.gz','labels.gz','features.gz']
     ]) and not args.overwrite:
 
         print("Artifacts exist and args.overwrite is set to False. Skipping...")
@@ -143,7 +153,7 @@ if __name__ == "__main__":
 
     elif not all([
         os.path.exists(f"{save_dir}/{f}") for f in 
-        ['ehr_ml_patient_ids.pkl','prediction_ids.pkl','day_indices.pkl','labels.pkl','features.pkl']
+        ['ehr_ml_patient_ids.gz','prediction_ids.gz','day_indices.gz','labels.gz','features.gz']
     ]) or args.overwrite: 
     
         os.makedirs(save_dir,exist_ok=True)
@@ -275,25 +285,25 @@ if __name__ == "__main__":
         # save artifacts  
         pickle.dump(
             ehr_ml_patient_ids,
-            open(os.path.join(save_dir,'ehr_ml_patient_ids.pkl'),'wb')
+            gzip.open(os.path.join(save_dir,'ehr_ml_patient_ids.gz'),'wb')
         )
 
         pickle.dump(
             prediction_ids,
-            open(os.path.join(save_dir,'prediction_ids.pkl'),'wb')
+            gzip.open(os.path.join(save_dir,'prediction_ids.gz'),'wb')
         )
 
         pickle.dump(
             day_indices,
-            open(os.path.join(save_dir,'day_indices.pkl'),'wb')
+            gzip.open(os.path.join(save_dir,'day_indices.gz'),'wb')
         )
 
         pickle.dump(
             labels,
-            open(os.path.join(save_dir,'labels.pkl'),'wb')
+            gzip.open(os.path.join(save_dir,'labels.gz'),'wb')
         )
 
         pickle.dump(
             features,
-            open(os.path.join(save_dir,'features.pkl'),'wb')
+            gzip.open(os.path.join(save_dir,'features.gz'),'wb')
         )

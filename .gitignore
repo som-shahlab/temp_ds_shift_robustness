@@ -14,6 +14,7 @@ logs
 tables
 backup*
 data_splits
+figs
 
 # testing ground
 testground*

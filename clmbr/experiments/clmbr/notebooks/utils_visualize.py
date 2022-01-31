@@ -19,59 +19,81 @@ model_colours={
     'gbm':[0.357, 0.518, 0.694]
 }
 
-model_colours_paired = [
-    "#FC766A", #CLMBR+LR
-    "#F6B9B2", #COUNT+LR
-    "#5B84B1", #CLMBR+GBM
-    "#B0C4DE", #COUNT+GBM
-]
+models_dict = {
+    "gru_lr": {
+        'label':'GRU\nLR',
+        'colour':sns.color_palette("Paired")[1],
+    },
+    "transformer_lr": {
+        'label':'Transformer\nLR',
+        'colour':sns.color_palette("Paired")[3],
+    },
+    "count_lr": {
+        'label':'Count\nLR',
+        'colour':sns.color_palette("Paired")[5],
+    },
+    "gru_gbm": {
+        'label':'GRU\nGBM',
+        'colour':sns.color_palette("Paired")[0],
+    },
+    "transformer_gbm": {
+        'label':'Transformer\nGBM',
+        'colour':sns.color_palette("Paired")[2],
+    },
+    "count_gbm": {
+        'label':'Count\nGBM',
+        'colour':sns.color_palette("Paired")[4],
+    },
+} 
 
-def get_result_table(artifacts_fpath,train_years,tasks,metrics,models):
+def get_result_table(artifacts_fpath,train_years,tasks,metrics,models,encoders):
     
-    df_results = pd.DataFrame(columns = ['Task','Train Group','Performance','Metric','Model'])
+    df_results = pd.DataFrame(columns = ['Task','Train Group','Performance','Metric','Encoder','Model'])
 
     c = 0
     
     for task in tasks:
         for train_year in train_years:
-            for model in models:
-                
-                df_eval = pd.read_csv(os.path.join(
-                    artifacts_fpath,
-                    task,
-                    "eval",
-                    f"{model}_{train_year}",
-                    "by_group.csv"
-                ))
-            
-                df_eval=df_eval.round(3)
-            
-                df_eval['test_group']=df_eval['test_group'].astype(str)
-            
-                for metric in metrics:
-                    
-                    c+=1
-                    
-                    mid = df_eval.query(
-                        f"metric==@metric and CI_quantile_95==['mid'] and test_group==@train_year"
-                    )['baseline'].values[0]
-                    
-                    lower = df_eval.query(
-                        "metric==@metric and CI_quantile_95==['lower'] and test_group==@train_year"
-                    )['baseline'].values[0]
-                    
-                    upper = df_eval.query(
-                        "metric==@metric and CI_quantile_95==['upper'] and test_group==@train_year"
-                    )['baseline'].values[0]
-                    
-                    df_results.loc[c,'Performance'] = f"{mid} ({lower}, {upper})"
-                    df_results.loc[c,'Metric'] = metric
-                    df_results.loc[c,'Task'] = task
-                    df_results.loc[c,'Train Group'] = train_years[train_year]
-                    df_results.loc[c,'Model']=model
-                    
-    df_results = df_results.replace({**tasks,**metrics,**models})
-    df_results = df_results.pivot(index=['Task','Metric'],columns=['Train Group','Model'],values='Performance')
+            for encoder in encoders:
+                for model in models:
+
+                    df_eval = pd.read_csv(os.path.join(
+                        artifacts_fpath,
+                        task,
+                        "eval",
+                        f"{encoder}_{model}_{train_year}",
+                        "by_group.csv"
+                    ))
+
+                    df_eval=df_eval.round(3)
+
+                    df_eval['test_group']=df_eval['test_group'].astype(str)
+
+                    for metric in metrics:
+
+                        c+=1
+
+                        mid = df_eval.query(
+                            f"metric==@metric and CI_quantile_95==['mid'] and test_group==@train_year"
+                        )['baseline'].values[0]
+
+                        lower = df_eval.query(
+                            "metric==@metric and CI_quantile_95==['lower'] and test_group==@train_year"
+                        )['baseline'].values[0]
+
+                        upper = df_eval.query(
+                            "metric==@metric and CI_quantile_95==['upper'] and test_group==@train_year"
+                        )['baseline'].values[0]
+
+                        df_results.loc[c,'Performance'] = f"{mid} ({lower}, {upper})"
+                        df_results.loc[c,'Metric'] = metric
+                        df_results.loc[c,'Task'] = task
+                        df_results.loc[c,'Train Group'] = train_years[train_year]
+                        df_results.loc[c,'Encoder']=encoder
+                        df_results.loc[c,'Model']=model
+                        
+    df_results = df_results.replace({**tasks,**metrics,**models,**encoders})
+    df_results = df_results.pivot(index=['Task','Metric'],columns=['Train Group','Encoder','Model'],values='Performance')
     df_results = df_results.reindex(labels = ['In-Hospital Mortality','LOS > 7 Days','Readmission in 30 Days','Admission to ICU'], level=0)
     df_results = df_results.reindex(labels = ['AUROC','AUPRC','Calibration'],level=1)
     
@@ -83,6 +105,7 @@ def plot_rel_ood_perf(
     tasks,
     metrics,
     models,
+    encoders,
     y_axis,
     model_colours=model_colours,
     baseline_label='09-12[ID]',
@@ -91,116 +114,118 @@ def plot_rel_ood_perf(
     legend_bbox_to_anchor=(0.5,-0.5),
     legend_ncols=5,
     save_path=None,
-    save_res_dpi=300
+    save_res_dpi=300,
+    save_format='png',
     ):
     
-    fig, axes = plt.subplots(nrows = len(metrics), ncols=len(tasks),figsize=figsize)
+    for encoder in encoders:
+        fig, axes = plt.subplots(nrows = len(metrics), ncols=len(tasks),figsize=figsize)
 
-    for c,task in enumerate(tasks):
-        for icolor,train_year in enumerate(train_years):
-            for m,model in enumerate(models):
-                
-                df_eval = pd.read_csv(os.path.join(
-                    artifacts_fpath,
-                    task,
-                    "eval",
-                    f"{model}_{train_year}",
-                    "by_group.csv"
-                )).assign(task=task)
+        for c,task in enumerate(tasks):
+            for icolor,train_year in enumerate(train_years):
+                for m,model in enumerate(models):
 
-                df_eval['test_group']=df_eval['test_group'].astype(str)
+                    df_eval = pd.read_csv(os.path.join(
+                        artifacts_fpath,
+                        task,
+                        "eval",
+                        f"{encoder}_{model}_{train_year}",
+                        "by_group.csv"
+                    )).assign(task=task)
 
-                for r,metric in enumerate(metrics):
+                    df_eval['test_group']=df_eval['test_group'].astype(str)
 
-                    year_groups = list(set([
-                        x for x in df_eval['test_group']
-                        if x > max(train_year.split("_"))
-                    ]))
+                    for r,metric in enumerate(metrics):
 
-                    year_groups.sort()
+                        year_groups = list(set([
+                            x for x in df_eval['test_group']
+                            if x > max(train_year.split("_"))
+                        ]))
 
-                    # baseline (0)
-                    axes[r][c].plot(
-                        [-0.5, len(year_groups)-0.5],
-                        [0,0],
-                        '--',
-                        c = 'black',
-                        zorder = 0,
-                        label=f"{baseline_label}" if m==0 else None
-                    )
+                        year_groups.sort()
 
-                    temp = df_eval.query("metric==@metric and test_group==@year_groups")
-                    data = temp.query("CI_quantile_95=='mid'").reset_index(drop=True)
-
-                    data['CI_upper'] = (
-                        temp.query("CI_quantile_95=='upper'").reset_index()['delta'] - 
-                        temp.query("CI_quantile_95=='mid'").reset_index()['delta']
-                    ).abs()
-
-                    data['CI_lower'] = (
-                        temp.query("CI_quantile_95=='lower'").reset_index()['delta'] - 
-                        temp.query("CI_quantile_95=='mid'").reset_index()['delta']
-                    ).abs()
-
-                    # line
-                    axes[r][c].plot(
-                        data['test_group'],
-                        data['delta'],
-                        '-o',
-                        linewidth=2,
-                        color = model_colours[model],
-                        label = f"{models[model]} {train_years[train_year]}{ood_label_suffix}"
-                    )
-
-                    # error bars
-                    axes[r][c].errorbar(
-                        data['test_group'],
-                        data['delta'],
-                        data[['CI_lower','CI_upper']].values.T,
-                        zorder = 0,
-                        linewidth = 1.5,
-                        color = model_colours[model],
-                    )
-
-                    ## Axes settings
-                    if icolor == 0:
-                        axes[r][c].set_ylim(y_axis[metric]['lim'])
-                        axes[r][c].yaxis.set_major_locator(MaxNLocator(nbins=4,prune='both'))
-                        axes[r][c].grid(which='major', linewidth=0.5, axis='y')
-                        if r==0:
-                            axes[r][c].set_title(tasks[task])
-
-                        if r==len(metrics)-1:
-                            axes[r][c].set_xticks(year_groups)
-                            axes[r][c].set_xticklabels([x[-2:] for x in year_groups])
-                            axes[r][c].set_xlabel('Year Groups')
-                        else:
-                            axes[r][c].set_xticklabels('')
-                            axes[r][c].set_xlabel('')
-                            axes[r][c].tick_params(axis='x', length=0)
-
-                        if c == 0:
-                            axes[r][c].set_ylabel(f"Relative\n{y_axis[metric]['label']}")
-                            axes[r][c].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-                        else:
-                            axes[r][c].set_yticklabels('')
-                            axes[r][c].set_ylabel('')
-                            #axes[r][c].spines['left'].set_color('white')
-                            axes[r][c].tick_params(axis='y', length=0)
-
-                    if r == len(metrics)-1 and c == len(tasks)-1:
-                        leg = axes[r][c].legend(
-                            bbox_to_anchor=legend_bbox_to_anchor,
-                            ncol=legend_ncols,
-                            title='Model',
+                        # baseline (0)
+                        axes[r][c].plot(
+                            [-0.5, len(year_groups)-0.5],
+                            [0,0],
+                            '--',
+                            c = 'black',
+                            zorder = 0,
+                            label=f"{baseline_label}" if m==0 else None
                         )
-                    #leg._legend_box.align='left'
 
-    #sns.despine(offset=10, trim = True) 
-    if save_path is not None:
-        plt.savefig(save_path, dpi=save_res_dpi)
-    
-    plt.show()
+                        temp = df_eval.query("metric==@metric and test_group==@year_groups")
+                        data = temp.query("CI_quantile_95=='mid'").reset_index(drop=True)
+
+                        data['CI_upper'] = (
+                            temp.query("CI_quantile_95=='upper'").reset_index()['delta'] - 
+                            temp.query("CI_quantile_95=='mid'").reset_index()['delta']
+                        ).abs()
+
+                        data['CI_lower'] = (
+                            temp.query("CI_quantile_95=='lower'").reset_index()['delta'] - 
+                            temp.query("CI_quantile_95=='mid'").reset_index()['delta']
+                        ).abs()
+
+                        # line
+                        axes[r][c].plot(
+                            data['test_group'],
+                            data['delta'],
+                            '-o',
+                            linewidth=2,
+                            color = model_colours[model],
+                            label = f"{models[model]} {train_years[train_year]}{ood_label_suffix}"
+                        )
+
+                        # error bars
+                        axes[r][c].errorbar(
+                            data['test_group'],
+                            data['delta'],
+                            data[['CI_lower','CI_upper']].values.T,
+                            zorder = 0,
+                            linewidth = 1.5,
+                            color = model_colours[model],
+                        )
+
+                        ## Axes settings
+                        if icolor == 0:
+                            axes[r][c].set_ylim(y_axis[metric]['lim'])
+                            axes[r][c].yaxis.set_major_locator(MaxNLocator(nbins=4,prune='both'))
+                            axes[r][c].grid(which='major', linewidth=0.5, axis='y')
+                            if r==0:
+                                axes[r][c].set_title(tasks[task])
+
+                            if r==len(metrics)-1:
+                                axes[r][c].set_xticks(year_groups)
+                                axes[r][c].set_xticklabels([x[-2:] for x in year_groups])
+                                axes[r][c].set_xlabel('Year Groups')
+                            else:
+                                axes[r][c].set_xticklabels('')
+                                axes[r][c].set_xlabel('')
+                                axes[r][c].tick_params(axis='x', length=0)
+
+                            if c == 0:
+                                axes[r][c].set_ylabel(f"Relative\n{y_axis[metric]['label']}")
+                                axes[r][c].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+                            else:
+                                axes[r][c].set_yticklabels('')
+                                axes[r][c].set_ylabel('')
+                                #axes[r][c].spines['left'].set_color('white')
+                                axes[r][c].tick_params(axis='y', length=0)
+
+                        if r == len(metrics)-1 and c == len(tasks)-1:
+                            leg = axes[r][c].legend(
+                                bbox_to_anchor=legend_bbox_to_anchor,
+                                ncol=legend_ncols,
+                                title='Model',
+                            )
+                        #leg._legend_box.align='left'
+
+        #sns.despine(offset=10, trim = True) 
+        if save_path is not None:
+            plt.savefig(f"{save_path}/{encoder}.{save_format}", dpi=save_res_dpi)
+
+        plt.show()
     
 
 def plot_raw_ood_perf(
@@ -538,9 +563,11 @@ def plot_change_rel_ood_int(
     tasks,
     metrics,
     models,
+    encoders,
     y_axis,
     train_years=[2009,2010,2011,2012],
-    model_colours=model_colours_paired,
+    model_colours=models_dict,
+    add_swarmplot=True,
     swarmplot_sample_frac=0.2,
     swarmplot_size=1,
     swarmplot_color=".3",
@@ -552,70 +579,87 @@ def plot_change_rel_ood_int(
     figsize=(12,5),
     save_path=None,
     save_res_dpi=300,
-    plot_significance=False,
     ):
     
     train_group_str = '_'.join([str(x) for x in train_years])
     df_eval = pd.DataFrame()
     exclude_test_groups = [train_group_str] + [str(x) for x in train_years]
-    
-    for task in tasks:
-        for model in models:
-            
-            fpath = os.path.join(
-                artifacts_fpath,
-                task,
-                "eval",
-                '_'.join([
-                    model,
-                    '_'.join([str(x) for x in train_years]),
-                ])
-            )
 
-            df_eval = pd.concat((
-                df_eval,
-                pd.read_csv(f"{fpath}/by_group_comp_rel_ood_with_base.csv")
-            ))
-            
+    for task in tasks:
+        for encoder in encoders:
+            for model in models:
+
+                fpath = os.path.join(
+                    artifacts_fpath,
+                    task,
+                    "eval",
+                    '_'.join([
+                        encoder,
+                        model,
+                        train_group_str,
+                    ])
+                )
+
+                df = pd.read_csv(f"{fpath}/by_group_comp_rel_ood_with_base.csv")
+
+                if encoder=='gru':
+
+                    df = pd.concat((
+                        (
+                            df[['task','metric','model','boot_num','test_group']]
+                            .assign(
+                                encoder=encoder,
+                                performance=df['performance_clmbr'],
+                                performance_base=df['performance_clmbr_baseline'],
+                                performance_delta=df['performance_clmbr_delta'],
+                            )
+                        ),
+                        (
+                            df[['task','metric','model','boot_num','test_group']]
+                            .assign(
+                                encoder='count',
+                                performance=df['performance_base'],
+                                performance_base=df['performance_base_baseline'],
+                                performance_delta=df['performance_base_delta'],
+                            )
+                        ),
+                    ))
+
+                else: 
+
+                    df = (
+                        df[['task','metric','model','boot_num','test_group']]
+                        .assign(
+                            encoder=encoder,
+                            performance=df['performance_clmbr'],
+                            performance_base=df['performance_clmbr_baseline'],
+                            performance_delta=df['performance_clmbr_delta'],
+                        )
+                    )
+
+
+                df_eval = pd.concat((
+                    df_eval,
+                    df
+                ))
+
     # get integral
     results = (
         df_eval
         .query("test_group!=@exclude_test_groups")
-        .groupby(['task','model','metric','boot_num'])
+        .groupby(['task','encoder','model','metric','boot_num'])
         .agg({
-            'performance_clmbr_delta': lambda x: np.trapz(x),
-            'performance_base_delta': lambda x: np.trapz(x),
+            'performance_delta': lambda x: np.trapz(x),
         })
         .reset_index()
     )
 
-    # get change in integral
-    results['change_rel_ood_int']=(
-        results['performance_clmbr_delta'] -
-        results['performance_base_delta']
-    )
-
-    # get bootstrapped CI
-    results_ci = (
-        results
-        .groupby(['task','model','metric'])['change_rel_ood_int']
-        .quantile([.025,.5,.975])
-        .unstack()
-        .reset_index()
-    )
-
-    results_ci['sig'] = results_ci[0.025]*results_ci[0.975]>0
-
-    results_stacked = (
-        results.groupby(['task','model','metric','boot_num'])
-        [['performance_clmbr_delta','performance_base_delta']]
-        .mean()
-        .stack()
-        .reset_index()
-        .rename(columns={'level_4':'model_delta',0:'integral'})
-    )
-
-    results_stacked['model_combination']=results_stacked['model']+'_'+results_stacked['model_delta']
+    results['model_combination']=results['encoder']+'_'+results['model']
+    
+    model_combination = [
+        x for x in model_colours.keys()
+        if x in results['model_combination'].unique()
+    ]
 
     fig,axes=plt.subplots(
         len(metrics),
@@ -626,61 +670,51 @@ def plot_change_rel_ood_int(
     for c,task in enumerate(tasks):
         for r,metric in enumerate(metrics):
 
-            data = results_stacked.query(
+            data = results.query(
                 "task==@task and metric==@metric"
             )
 
-            model_combination = [
-                "lr_performance_clmbr_delta", 
-                "lr_performance_base_delta",
-                "gbm_performance_clmbr_delta",
-                "gbm_performance_base_delta"
-            ]
-            
             axes[r][c].plot(
-                [-1,4],
+                [-1,len(model_combination)+1],
                 [0,0],
                 'k--',
                 zorder=0
             )
-            
+
             sns.boxplot(
                 data = data,
                 x = "model_combination",
-                #hue = "model",
-                y = "integral",
+                y = "performance_delta",
                 order = model_combination,
+                palette = sns.set_palette(
+                    [model_colours[x]['colour'] for x in model_colours.keys()]
+                ),
                 ax=axes[r][c],
-                palette = sns.set_palette(sns.color_palette(
-                    model_colours_paired
-                )),
                 width=0.5,
                 linewidth=1,
                 fliersize=0,
                 boxprops=dict(alpha=boxplot_alpha),
             )
             
-            sns.swarmplot(
-                data = data.groupby(
-                    'model_combination'
-                ).sample(frac=swarmplot_sample_frac),
-                x = "model_combination",
-                #hue = "model",
-                y = "integral",
-                order = model_combination,
-                size = swarmplot_size,
-                ax=axes[r][c],
-                zorder=0,
-                color=swarmplot_color
-                #palette = sns.set_palette(sns.color_palette(
-                #    model_colours_paired
-                #))
-            )
-            
+            if add_swarmplot:
+                sns.swarmplot(
+                    data = data.groupby(
+                        'model_combination'
+                    ).sample(frac=swarmplot_sample_frac),
+                    x = "model_combination",
+                    #hue = "encoder",
+                    y = "performance_delta",
+                    order = model_combination,
+                    size = swarmplot_size,
+                    ax=axes[r][c],
+                    zorder=0,
+                    color=swarmplot_color,
+                )
+
             # add hatch
             rect = patches.Rectangle(
-                (-1,-2) if metric in ['auc','auprc'] else (-1,0),
-                5,
+                (-1,-2) if metric in ['auc','auprc','auprc_c'] else (-1,0),
+                len(model_combination)+1,
                 2,
                 linewidth=0,
                 edgecolor='grey',
@@ -690,44 +724,7 @@ def plot_change_rel_ood_int(
                 zorder=0
             )
             axes[r][c].add_patch(rect)
-            
-            # add significance highlight
-            if plot_significance:
-                
-                if results_ci.query(
-                    "task==@task and model=='lr' and metric==@metric"
-                )['sig'].values[0]==True:
-                    
-                    rect = patches.Rectangle(
-                        (-0.5,-2),
-                        2,
-                        4,
-                        linewidth=0,
-                        edgecolor='None',
-                        facecolor='green',
-                        alpha=0.1,
-                        zorder=0
-                    )
-                    
-                    axes[r][c].add_patch(rect)
-                    
-                if results_ci.query(
-                    "task==@task and model=='gbm' and metric==@metric"
-                )['sig'].values[0]==True:
-                    
-                    rect = patches.Rectangle(
-                        (1.5,-2),
-                        2,
-                        4,
-                        linewidth=0,
-                        edgecolor='None',
-                        facecolor='green',
-                        alpha=0.1,
-                        zorder=0
-                    )
-                    
-                    axes[r][c].add_patch(rect)
-            
+
             ## axes setting
             axes[r][c].set_ylim(y_axis[metric][task])
             axes[r][c].tick_params(axis='y', length=0)
@@ -739,8 +736,12 @@ def plot_change_rel_ood_int(
                 axes[r][c].set_title(tasks[task])
 
             if r==len(metrics)-1:
-                axes[r][c].set_xticks([0,1,2,3])
-                axes[r][c].set_xticklabels(['CLMBR\nLR', 'Count\nLR', 'CLMBR\nGBM', 'Count\nGBM'])
+                axes[r][c].set_xticks(list(range(0,len(model_combination),1)))
+                axes[r][c].set_xticklabels([
+                    model_colours[x]['label'] 
+                    for x in model_colours.keys()
+                    if x in model_combination
+                ])
                 axes[r][c].set_xlabel('Model')
             else:
                 axes[r][c].set_xticklabels('')
@@ -752,122 +753,226 @@ def plot_change_rel_ood_int(
 
             else:
                 axes[r][c].set_ylabel('')
-            
+
+    if save_path is not None:
+        plt.savefig(save_path, dpi=save_res_dpi)
+        
     plt.show()
     
-def plot_heatmap(
+    results = results.pivot(
+        index=['task','model','metric','boot_num'],
+        columns=['encoder'],
+        values=['performance_delta']
+    ).reset_index()
+    
+    results.columns = [
+        x[0] if x[0]!='performance_delta' else x[1]
+        for x in results.columns
+    ]
+    
+    use_metrics = list(y_axis.keys())
+    sig_results = pd.DataFrame()
+    
+    if 'gru' in encoders.keys():
+        results = results.assign(gru_count=results['gru']-results['count'])
+        results_ci = (
+            results
+            .groupby(['task','model','metric'])['gru_count']
+            .quantile([.025,.5,.975])
+            .unstack()
+            .reset_index()
+        )
+        results_ci['sig']=results_ci[0.025]*results_ci[0.975]>0
+        results_ci.query("sig==1 and metric==@use_metrics")
+        results_ci['comparison'] = 'GRU_Count'
+        sig_results = pd.concat((sig_results, results_ci))
+
+    if 'transformer' in encoders.keys():
+        results = results.assign(transformer_count=results['transformer']-results['count'])
+        results_ci = (
+            results
+            .groupby(['task','model','metric'])['transformer_count']
+            .quantile([.025,.5,.975])
+            .unstack()
+            .reset_index()
+        )
+        results_ci['sig']=results_ci[0.025]*results_ci[0.975]>0
+        results_ci.query("sig==1 and metric==@use_metrics")
+        results_ci['comparison'] = 'Transformer_Count'
+        sig_results = pd.concat((sig_results, results_ci))
+
+    if 'gru' in encoders.keys() and 'transformer' in encoders.keys():
+        results = results.assign(gru_transformer=results['gru']-results['transformer'])
+        results_ci = (
+            results
+            .groupby(['task','model','metric'])['gru_transformer']
+            .quantile([.025,.5,.975])
+            .unstack()
+            .reset_index()
+        )
+        results_ci['sig']=results_ci[0.025]*results_ci[0.975]>0
+        results_ci.query("sig==1 and metric==@use_metrics")
+        results_ci['comparison'] = 'GRU_Transformer'
+        sig_results = pd.concat((sig_results, results_ci))
+    return sig_results
+    
+    
+    
+def plot_heatmap_ood(
     artifacts_fpath,
-    train_years,
     tasks,
     y_axis,
+    encoders,
     models,
-    metric={'name':'auc','label':'AUROC'},
-    test_group=['2019','2020','2021'],
-    dv='delta',
+    metrics,
+    models_dict=models_dict,
+    train_years=[2009,2010,2011,2012],
+    dv='performance_delta', #performance / performance_delta
     cmap='magma',
     figsize=(13,4),
     save_path=None,
     save_res_dpi=300,
     ):
     
-    train_year_labels=[v[:2]+'\n'+v[-2:] for k,v in train_years.items()]
-    df_results = pd.DataFrame()
+    train_years_str = [str(x) for x in train_years]
+    train_years_joined = "_".join(train_years_str)
     
     ## read files
-    for task in tasks:
-        for train_year in train_years:
-            for model in models:
-                df_eval = pd.read_csv(os.path.join(
+    df_eval = pd.DataFrame()
+    for c,task in enumerate(tasks):
+        for encoder in encoders:
+            for m,model in enumerate(models):
+
+                df = pd.read_csv(os.path.join(
                     artifacts_fpath,
                     task,
                     "eval",
-                    f"{model}_{train_year}",
-                    "by_group.csv"
-                ))
+                    "_".join([
+                        encoder,
+                        model,
+                        train_years_joined
+                    ]),
+                    "by_group_comp_rel_ood_with_base.csv"
+                )).assign(task=task)
 
-                df_eval['test_group']=df_eval['test_group'].astype(str)
+                df = df.query("test_group!=@train_years_str and test_group!=@train_years_joined")
 
-                df_eval.loc[
-                    df_eval['test_group']==train_year,'test_group'
-                ]=train_year.split('_')[-1]
+                if encoder=='gru':
 
-                df_results = pd.concat(( 
-                    df_results,
-                    df_eval.query(
-                        "test_group==@test_group and \
-                         metric==@metric['name'] and \
-                         CI_quantile_95=='mid'\
-                        "
-                    )[['test_group',dv]].assign(
-                        train_year=train_years[train_year],
-                        metric=metric['name'],
-                        task=task,
-                        model=model
+                    df = pd.concat((
+                        (
+                            df[['task','metric','model','boot_num','test_group']]
+                            .assign(
+                                encoder=encoder,
+                                performance=df['performance_clmbr'],
+                                performance_base=df['performance_clmbr_baseline'],
+                                performance_delta=df['performance_clmbr_delta'],
+                            )
+                        ),
+                        (
+                            df[['task','metric','model','boot_num','test_group']]
+                            .assign(
+                                encoder='count',
+                                performance=df['performance_base'],
+                                performance_base=df['performance_base_baseline'],
+                                performance_delta=df['performance_base_delta'],
+                            )
+                        ),
+                    ))
+
+                else: 
+
+                    df = (
+                        df[['task','metric','model','boot_num','test_group']]
+                        .assign(
+                            encoder=encoder,
+                            performance=df['performance_clmbr'],
+                            performance_base=df['performance_clmbr_baseline'],
+                            performance_delta=df['performance_clmbr_delta'],
+                        )
                     )
-               )).reset_index(drop=True)
 
+
+                df_eval = pd.concat((
+                    df_eval,
+                    df
+                ))
+                
+    df_eval = (
+        df_eval
+        .groupby(['task','metric','model','test_group','encoder'])['performance_delta']
+        .quantile(0.5)
+        .reset_index()
+    )
+    
     ## plot
-    fig, axes = plt.subplots(nrows = len(models), ncols=len(tasks),figsize=figsize)
+    fig, axes = plt.subplots(nrows = len(metrics), ncols=len(tasks),figsize=figsize)
     for c,task in enumerate(tasks):
-        for r,model in enumerate(models):
-            df = df_results.query("task==@task and model==@model")
+        for r,metric in enumerate(metrics):
+            df = df_eval.query("task==@task and metric==@metric")
             
-            df.loc[
-                (df['test_group'].str.slice(start=-2)<df['train_year'].str.slice(start=-2)),
-                dv
-            ]=np.nan
+            df = df.pivot(
+                index=['model','encoder'], 
+                columns='test_group',
+                values=dv
+            )
+            
+            data = df.values
+            
+            # x & y ticks 
+            df = df.reset_index()
+            df['model_combination'] = df['encoder']+'_'+df['model']
+            xlabels = [x[-2:] for x in df_eval['test_group'].unique()]
+            ylabels = [models_dict[x]['label'] for x in df['model_combination']]
             
             if y_axis=='auto':
-                vmin = df[dv].min()
-                vmax = df[dv].max()
+                vmin = data.min()
+                vmax = data.max()
             else:
-                vmin=y_axis[metric]['lim_raw' if dv=='comparator' else 'lim'][0]
-                vmax=y_axis[metric]['lim_raw' if dv=='comparator' else 'lim'][1]
-                
-            df = df.pivot_table(values=dv,index='test_group',columns='train_year')
-            df=df[[v for k,v in train_years.items()]]
+                vmin=y_axis[metric][task]['lim_raw' if dv=='performance' else 'lim'][0]
+                vmax=y_axis[metric][task]['lim_raw' if dv=='performance' else 'lim'][1]
 
             pos = axes[r][c].imshow(
-                df.values,
-                cmap=f"{cmap}" if metric['name'] in ['auc','auprc'] else f"{cmap}_r",
+                data,
+                cmap=f"{cmap}" if metric in ['auc','auprc','auprc_c'] else f"{cmap}_r",
                 vmin=vmin,
                 vmax=vmax,
             )
 
-            if c==len(tasks)-1 and y_axis!='auto':
-                fig.colorbar(
-                    pos,ax=axes[r][c],
-                    label=metric['label'] if dv=='comparator' else f"Relative\n{metric['label']}",
-                    fraction=0.046,
-                    pad=0.04
-                )
-            else:
-                fig.colorbar(
-                    pos,ax=axes[r][c],
-                    label=metric['label'] if dv=='comparator' else f"Relative\n{metric['label']}",
-                    fraction=0.046,
-                    pad=0.04
-                )
+            fig.colorbar(
+                pos,ax=axes[r][c],
+                label=None,
+                fraction=0.046,
+                pad=0.04
+            )
+            
+            axes[r][c].plot(
+                [-0.5,len(xlabels)-0.5],
+                [len(encoders)+0.5,len(encoders)+0.5],
+                'k-'
+            )
 
             if r==0:
                 axes[r][c].set_title(tasks[task])
 
-            if r==len(models)-1:
-                axes[r][c].set_xticks(np.arange(0,len(train_year_labels),1))
-                axes[r][c].set_xticklabels(train_year_labels)
-                axes[r][c].set_xlabel('Train Year Groups')
+            if r==len(metrics)-1:
+                axes[r][c].set_xticks(np.arange(0,len(xlabels),1))
+                axes[r][c].set_xticklabels(xlabels)
+                axes[r][c].set_xlabel('Evaluation Year')
             else:
                 axes[r][c].set_xticklabels('')
                 axes[r][c].set_xlabel('')
                 axes[r][c].tick_params(axis='x', length=0)
 
-
-            axes[r][c].set_ylabel(f"{models[model]}\nEvaluation Year [OOD]")
-            axes[r][c].set_yticks(np.arange(0,len(test_group),1))
-            axes[r][c].set_yticklabels(test_group)
-
-   
-    #sns.despine(offset=10, trim = True) 
+            if c==0:    
+                axes[r][c].set_ylabel(f"Relative\n{metrics[metric]}")
+                axes[r][c].set_yticks(np.arange(0,len(ylabels),1))
+                axes[r][c].set_yticklabels(ylabels)
+            else:
+                axes[r][c].set_yticklabels('')
+                axes[r][c].set_ylabel('')
+                axes[r][c].tick_params(axis='y', length=0)
+                
     if save_path is not None:
         plt.savefig(save_path, dpi=save_res_dpi)
     

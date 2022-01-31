@@ -22,21 +22,21 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     "--artifacts_fpath",
     type = str,
-    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/adapter_artifacts",
+    default = "/labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/adapter_artifacts",
     help = "path to clmbr adapter model artifacts"
 )
 
 parser.add_argument(
     "--base_artifacts_fpath",
     type = str,
-    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/baseline/artifacts",
+    default = "/labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/baseline/artifacts",
     help = "path to count feature model artifacts"
 )
 
 parser.add_argument(
     "--count_features_fpath",
     type = str,
-    default = '/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/features/',
+    default = '/labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/features/',
     help = "path to count features"
 )
 

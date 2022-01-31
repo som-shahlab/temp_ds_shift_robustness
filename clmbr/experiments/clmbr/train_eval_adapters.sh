@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # conda env
-source activate /local-scratch/nigam/envs/lguo/temp_ds_shift_robustness
+source activate /labs/shahlab/envs/lguo/temp_ds_shift_robustness
 
 # script dir
-cd /local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/scripts
+cd /labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/scripts
 
 # make log folders if not exist
 mkdir -p ../logs/adapter_tune
@@ -40,10 +40,9 @@ N_BOOT=1000
 N_JOBS=2
 
 # whether to re-run 
-FEATURIZE_OVERWRITE='True'
-TUNE_OVERWRITE='True'
-TRAIN_OVERWRITE='True'
-EVAL_OVERWRITE='True'
+TUNE_OVERWRITE='False'
+TRAIN_OVERWRITE='False'
+EVAL_OVERWRITE='False'
 
 ## -----------------------------------------------------------
 ## ----------------------- job pipeline ----------------------

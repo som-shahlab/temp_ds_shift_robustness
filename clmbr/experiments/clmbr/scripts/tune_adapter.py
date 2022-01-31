@@ -4,6 +4,7 @@ import pickle
 import joblib
 import pdb
 import yaml
+import gzip
 
 import pandas as pd
 import numpy as np
@@ -25,21 +26,21 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     "--clmbr_artifacts_fpath",
     type = str,
-    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/clmbr_artifacts",
+    default = "/labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/clmbr_artifacts",
     help = "path to save artifacts"
 )
 
 parser.add_argument(
     "--adapter_artifacts_fpath",
     type = str,
-    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/adapter_artifacts",
+    default = "/labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/adapter_artifacts",
     help = "path to save artifacts"
 )
 
 parser.add_argument(
     "--cohort_fpath",
     type = str,
-    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/cohorts/",
+    default = "/labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/cohorts/",
     help = "path to save cohort"
 )
 
@@ -60,7 +61,7 @@ parser.add_argument(
 parser.add_argument(
     "--hparams_fpath",
     type=str,
-    default='/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/hyperparams',
+    default='/labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/hyperparams',
     help="path to hyperparameters"
 )
 
@@ -121,11 +122,11 @@ def get_data(features_fpath, cohort_fpath, cohort_id):
     grab data
     """
     
-    features=pickle.load(open(os.path.join(features_fpath,"features.pkl"),'rb'))
-    prediction_ids=pickle.load(open(os.path.join(features_fpath,"prediction_ids.pkl"),'rb'))
-    labels=pickle.load(open(os.path.join(features_fpath,"labels.pkl"),'rb'))
-    ehr_ml_patient_ids=pickle.load(open(os.path.join(features_fpath,"ehr_ml_patient_ids.pkl"),'rb'))
-    day_indices=pickle.load(open(os.path.join(features_fpath,"day_indices.pkl"),'rb'))
+    features=pickle.load(gzip.open(os.path.join(features_fpath,"features.gz"),'rb'))
+    prediction_ids=pickle.load(gzip.open(os.path.join(features_fpath,"prediction_ids.gz"),'rb'))
+    labels=pickle.load(gzip.open(os.path.join(features_fpath,"labels.gz"),'rb'))
+    ehr_ml_patient_ids=pickle.load(gzip.open(os.path.join(features_fpath,"ehr_ml_patient_ids.gz"),'rb'))
+    day_indices=pickle.load(gzip.open(os.path.join(features_fpath,"day_indices.gz"),'rb'))
     
     return features,labels,prediction_ids,ehr_ml_patient_ids,day_indices
 

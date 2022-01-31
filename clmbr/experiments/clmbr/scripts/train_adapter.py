@@ -32,21 +32,21 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     "--clmbr_artifacts_fpath",
     type = str,
-    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/clmbr_artifacts",
+    default = "/labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/clmbr_artifacts",
     help = "path to save artifacts"
 )
 
 parser.add_argument(
     "--adapter_artifacts_fpath",
     type = str,
-    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/adapter_artifacts",
+    default = "/labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/adapter_artifacts",
     help = "path to save artifacts"
 )
 
 parser.add_argument(
     "--cohort_fpath",
     type = str,
-    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/cohorts/",
+    default = "/labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/cohorts/",
     help = "path to save cohort"
 )
 

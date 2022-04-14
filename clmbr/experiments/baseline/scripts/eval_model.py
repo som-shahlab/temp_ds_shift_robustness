@@ -23,7 +23,7 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     "--artifacts_fpath",
     type = str,
-    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/baseline/artifacts",
+    default = "/labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/baseline/artifacts",
     help = "path to save artifacts"
 )
 
@@ -69,6 +69,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--use_same_train_group",
+    type = str2bool,
+    default = "true",
+    help = "whether to overwrite existing artifacts",
+)
+
+parser.add_argument(
     "--overwrite",
     type = str2bool,
     default = "false",
@@ -90,8 +97,6 @@ np.random.seed(args.seed)
 # parse tasks and train_group
 args.tasks = args.tasks.split("/")
 args.train_group = [int(x) for x in args.train_group.split("/")]
-
-evaluator = StandardEvaluator(metrics=['auc','auprc','loss_bce','ace_abs_logistic_logit'])
 
 for task in args.tasks:
     # assign index_year
@@ -156,7 +161,16 @@ for task in args.tasks:
         #'group_race_eth_gender_age_group':['group','race_eth_gender_age_group'],
     }
     
-    # bootstrap_evaluate should support replicate variables -- see source code
+    if args.use_same_train_group:
+        train_group = ['2009','2010','2011','2012']
+    else:
+        train_group = df['train_groups'].unique()[0]
+    
+    evaluator = StandardEvaluator(
+        metrics=['auc','auprc','auprc_c','loss_bce','ace_abs_logistic_logit'],
+        **{'pi0':df.query("test_group==@train_group")['labels'].mean()} # set prior for calibrated auprc
+    )
+    
     train_group = df['train_groups'].unique()[0]
     
     for k,v in strata_vars_dict.items():

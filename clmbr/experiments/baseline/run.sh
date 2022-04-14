@@ -1,36 +1,33 @@
 #!/bin/bash
-
-# set GPU device
-export CUDA_VISIBLE_DEVICES=6
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=lawrence.guo91@gmail.com
+#SBATCH --time=5-00:00 # Runtime in D-HH:MM
+#SBATCH --job-name=count_models_baseline
+#SBATCH --nodes=1 
+#SBATCH -n 16 #number of cores to reserve, default is 1
+#SBATCH --mem=32000 # in MegaBytes. default is 8 GB
+#SBATCH --partition=shahlab # Partition allocated for the lab
+#SBATCH --error=logs/error-sbatchjob.%J.err
+#SBATCH --output=logs/out-sbatchjob.%J.out
 
 # conda env
-source activate /local-scratch/nigam/envs/lguo/temp_ds_shift_robustness
+source activate /labs/shahlab/envs/lguo/temp_ds_shift_robustness
 
 # script dir
-cd /local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/baseline/scripts
+cd /labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/baseline/scripts
 
 # make log folders if not exist
-mkdir -p ../logs/tune
-mkdir -p ../logs/train
-mkdir -p ../logs/eval
+# mkdir -p ../logs/tune
+# mkdir -p ../logs/train
+# mkdir -p ../logs/eval
 
 ## -----------------------------------------------------------
 ## --------------------- job specification -------------------
 ## -----------------------------------------------------------
 TRAIN_GROUPS=(
     "2009/2010/2011/2012" 
-    "2012" "2013" "2014" "2015" "2016" "2017" 
+    "2013" "2014" "2015" "2016" "2017" 
     "2018" "2019" "2020" "2021" 
-    "2010/2011/2012/2013" "2011/2012/2013/2014" 
-    "2012/2013/2014/2015" "2013/2014/2015/2016" 
-    "2014/2015/2016/2017" "2015/2016/2017/2018" 
-    "2016/2017/2018/2019" "2017/2018/2019/2020"
-    "2018/2019/2020/2021"
-    "2017/2018" "2016/2017/2018" "2015/2016/2017/2018"
-    "2014/2015/2016/2017/2018" "2013/2014/2015/2016/2017/2018" 
-    "2012/2013/2014/2015/2016/2017/2018" 
-    "2011/2012/2013/2014/2015/2016/2017/2018" 
-    "2010/2011/2012/2013/2014/2015/2016/2017/2018" 
 )
 
 MODELS=("lr" "gbm")
@@ -70,8 +67,7 @@ function pipe {
                 --tasks=${TASKS[$t]} \
                 --model=${MODELS[$ij]} \
                 --train_group="$1" \
-                --overwrite="$TUNE_OVERWRITE" \
-                >> "../logs/tune/${1:2:2}-${1: -2}-${TASKS[$t]}-$JOB_ID" &
+                --overwrite="$TUNE_OVERWRITE" 
 
             let k+=1
             [[ $((k%N_TASKS)) -eq 0 ]] && wait
@@ -89,8 +85,7 @@ function pipe {
                 --tasks=${TASKS[$t]} \
                 --model=${MODELS[$ij]} \
                 --train_group="$1" \
-                --overwrite="$TRAIN_OVERWRITE" \
-                >> "../logs/train/${1:2:2}-${1: -2}-${TASKS[$t]}-$JOB_ID" &
+                --overwrite="$TRAIN_OVERWRITE" 
 
             let k+=1
             [[ $((k%N_TASKS)) -eq 0 ]] && wait
@@ -109,8 +104,7 @@ function pipe {
                 --model=${MODELS[$ij]} \
                 --train_group="$1" \
                 --n_boot=$N_BOOT \
-                --overwrite="$EVAL_OVERWRITE" \
-                >> "../logs/eval/${1:2:2}-${1: -2}-${TASKS[$t]}-$JOB_ID" &
+                --overwrite="$EVAL_OVERWRITE" 
 
             let k+=1
             [[ $((k%N_TASKS)) -eq 0 ]] && wait

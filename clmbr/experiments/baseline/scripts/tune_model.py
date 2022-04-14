@@ -25,21 +25,21 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     "--artifacts_fpath",
     type = str,
-    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/baseline/artifacts",
+    default = "/labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/baseline/artifacts",
     help = "path to save artifacts"
 )
 
 parser.add_argument(
     "--features_fpath",
     type = str,
-    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/features/admissions",
+    default = "/labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/features/admissions",
     help = "path to extracted features"
 )
 
 parser.add_argument(
     "--cohort_fpath",
     type = str,
-    default = "/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/cohorts/",
+    default = "/labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/cohorts/",
     help = "path to save cohort"
 )
 
@@ -60,7 +60,7 @@ parser.add_argument(
 parser.add_argument(
     "--hparams_fpath",
     type=str,
-    default='/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/baseline/hyperparams',
+    default='/labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/baseline/hyperparams',
     help="path to hyperparameters"
 )
 

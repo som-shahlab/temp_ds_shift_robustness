@@ -208,13 +208,20 @@ if __name__ == "__main__":
         
         print(f"task: {task}")
         
+        features_fpath = os.path.join(
+            args.clmbr_artifacts_fpath,
+            "features",
+            "_".join([str(x) for x in args.train_group]),
+            args.clmbr_encoder,
+        )
+
+        best = [x for x in os.listdir(features_fpath) if 'best_model' in x][0]
+
         # get data
         features,labels,prediction_ids,ehr_ml_patient_ids,day_indices = get_data(
             os.path.join(
-                args.clmbr_artifacts_fpath,
-                "features",
-                "_".join([str(x) for x in args.train_group]),
-                args.clmbr_encoder,
+                features_fpath,
+                best,
             ), 
             args.cohort_fpath, 
             args.cohort_id
@@ -319,4 +326,3 @@ if __name__ == "__main__":
                 df.reset_index(drop=True).to_csv(
                     f"{fpath}/val_pred_probs.csv"
                 )
-

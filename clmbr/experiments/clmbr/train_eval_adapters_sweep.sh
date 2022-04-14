@@ -1,5 +1,16 @@
 #!/bin/bash
 
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=lawrence.guo91@gmail.com
+#SBATCH --time=5-00:00 # Runtime in D-HH:MM
+#SBATCH --job-name=count_models_baseline
+#SBATCH --nodes=1 
+#SBATCH -n 16 #number of cores to reserve, default is 1
+#SBATCH --mem=32000 # in MegaBytes. default is 8 GB
+#SBATCH --partition=shahlab # Partition allocated for the lab
+#SBATCH --error=logs/error-sbatchjob.%J.err
+#SBATCH --output=logs/out-sbatchjob.%J.out
+
 # conda env
 source activate /labs/shahlab/envs/lguo/temp_ds_shift_robustness
 
@@ -7,9 +18,8 @@ source activate /labs/shahlab/envs/lguo/temp_ds_shift_robustness
 cd /labs/shahlab/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/scripts
 
 # make log folders if not exist
-mkdir -p ../logs/adapter_tune
-mkdir -p ../logs/adapter_train
-mkdir -p ../logs/adapter_eval
+mkdir -p ../logs/adapter_train_sweep
+mkdir -p ../logs/adapter_eval_sweep
 
 ## -----------------------------------------------------------
 ## --------------------- job specification -------------------
@@ -17,8 +27,9 @@ mkdir -p ../logs/adapter_eval
 TRAIN_GROUPS=(
    "2009/2010/2011/2012" 
 )
+
 CLMBR_ENCODERS=("transformer")
-MODELS=("lr" "gbm")
+MODELS=("lr")
 TASKS=("hospital_mortality" "LOS_7" "readmission_30" "icu_admission")
 N_BOOT=1000
 
@@ -27,7 +38,6 @@ N_BOOT=1000
 N_JOBS=2
 
 # whether to re-run 
-TUNE_OVERWRITE='False'
 TRAIN_OVERWRITE='False'
 EVAL_OVERWRITE='False'
 
@@ -37,8 +47,8 @@ EVAL_OVERWRITE='False'
 
 N_GROUPS=${#TRAIN_GROUPS[@]}
 N_ENCODERS=${#CLMBR_ENCODERS[@]}
-N_TASKS=${#TASKS[@]}
 N_MODELS=${#MODELS[@]}
+N_TASKS=${#TASKS[@]}
 
 # generate job id
 JOB_ID=$(cat /proc/sys/kernel/random/uuid)
@@ -52,37 +62,17 @@ function pipe {
     for (( ij=0; ij<$N_MODELS; ij++ )); do
         for (( t=0; t<$N_TASKS; t++ )); do
 
-            python -u tune_adapter.py \
-                --tasks=${TASKS[$t]} \
-                --clmbr_encoder="$2" \
-                --model=${MODELS[$ij]} \
-                --train_group="$1" \
-                --overwrite="$TUNE_OVERWRITE" \
-                >> "../logs/adapter_tune/${1:2:2}-${1: -2}-${TASKS[$t]}-$JOB_ID" &
-
-            let k+=1
-            [[ $((k%N_TASKS)) -eq 0 ]] && wait
-        
-        done
-    done
-    
-    # train model 
-    # executes $N_TASK jobs in parallel
-    local k=0
-    for (( ij=0; ij<$N_MODELS; ij++ )); do
-        for (( t=0; t<$N_TASKS; t++ )); do
-
-            python -u train_adapter.py \
+            python -u train_adapter_sweep.py \
                 --tasks=${TASKS[$t]} \
                 --clmbr_encoder="$2" \
                 --model=${MODELS[$ij]} \
                 --train_group="$1" \
                 --overwrite="$TRAIN_OVERWRITE" \
-                >> "../logs/adapter_train/${1:2:2}-${1: -2}-${TASKS[$t]}-$JOB_ID" &
+                >> "../logs/adapter_train_sweep/${1:2:2}-${1: -2}-${TASKS[$t]}-$JOB_ID" &
 
             let k+=1
             [[ $((k%N_TASKS)) -eq 0 ]] && wait
-            
+        
         done
     done
     
@@ -92,14 +82,14 @@ function pipe {
     for (( ij=0; ij<$N_MODELS; ij++ )); do
         for (( t=0; t<$N_TASKS; t++ )); do
 
-            python -u evaluate_adapter.py \
+            python -u evaluate_adapter_sweep.py \
                 --tasks=${TASKS[$t]} \
                 --clmbr_encoder="$2" \
                 --model=${MODELS[$ij]} \
                 --train_group="$1" \
                 --n_boot=$N_BOOT \
                 --overwrite="$EVAL_OVERWRITE" \
-                >> "../logs/adapter_eval/${1:2:2}-${1: -2}-${TASKS[$t]}-$JOB_ID" &
+                >> "../logs/adapter_eval_sweep/${1:2:2}-${1: -2}-${TASKS[$t]}-$JOB_ID" &
 
             let k+=1
             [[ $((k%N_TASKS)) -eq 0 ]] && wait

@@ -131,18 +131,25 @@ for task in args.tasks:
     
     print(f"task: {task}")
 
+    features_fpath = os.path.join(
+        args.clmbr_artifacts_fpath,
+        "features",
+        "_".join([str(x) for x in args.train_group]),
+        args.clmbr_encoder,
+    )
+
+    best = [x for x in os.listdir(features_fpath) if 'best_model' in x][0]
+
     # get data
     features,labels,prediction_ids,ehr_ml_patient_ids,day_indices = get_data(
         os.path.join(
-            args.clmbr_artifacts_fpath,
-            "features",
-            "_".join([str(x) for x in args.train_group]),
-            args.clmbr_encoder,
+            features_fpath,
+            best,
         ), 
         args.cohort_fpath, 
         args.cohort_id
     )
-
+    
     print(f"Grabbing model performance for {task}")
 
     # set path
@@ -280,7 +287,12 @@ for task in args.tasks:
             open(f"{fpath}/hparams.yml","w")
         )
 
-        all_groups = [args.train_group,2009,2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021]
+        all_groups = [
+            args.train_group,
+            2009,2010,2011,2012,
+            2013,2014,2015,2016,
+            2017,2018,2019,2020,2021,
+        ]
         
         ## get test data
         for group in all_groups:
@@ -355,6 +367,7 @@ for task in args.tasks:
         )
 
         cohort = pd.read_parquet(cohort_dir)
+        cohort = cohort.query(f"{task}_fold_id=='test'")
         
         df = df.merge(
             cohort[[
@@ -374,4 +387,6 @@ for task in args.tasks:
             right_on='prediction_id'
         )
 
+        df['test_group'] = df['test_group'].astype(str)
+        
         df.reset_index(drop=True).to_csv(f"{fpath}/{file_name}.csv")

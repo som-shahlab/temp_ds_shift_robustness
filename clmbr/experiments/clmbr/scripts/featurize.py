@@ -7,6 +7,7 @@ import sys
 import re
 import pickle
 import gzip
+import pdb
 
 import numpy as np
 import pandas as pd
@@ -78,7 +79,6 @@ parser.add_argument(
     help = "whether to overwrite existing artifacts",
 )
 
-
 #------------------------------------
 # Helper Funcs
 #------------------------------------
@@ -134,176 +134,180 @@ if __name__ == "__main__":
     
     clmbr_model_year = f"{args.train_group[0]}_{args.train_group[-1]}"
     
-    # save dir
-    save_dir=os.path.join(
+    models_dir=os.path.join(
         args.artifacts_fpath,
-        "features",
-        "_".join([str(x) for x in args.train_group]),
+        "models",
+        clmbr_model_year,
         args.clmbr_encoder,
     )
     
-    # check if files exist
-    if all([
-        os.path.exists(f"{save_dir}/{f}") for f in 
-        ['ehr_ml_patient_ids.gz','prediction_ids.gz','day_indices.gz','labels.gz','features.gz']
-    ]) and not args.overwrite:
-
-        print("Artifacts exist and args.overwrite is set to False. Skipping...")
-        sys.exit()
-
-    elif not all([
-        os.path.exists(f"{save_dir}/{f}") for f in 
-        ['ehr_ml_patient_ids.gz','prediction_ids.gz','day_indices.gz','labels.gz','features.gz']
-    ]) or args.overwrite: 
+    models = os.listdir(models_dir)
     
-        os.makedirs(save_dir,exist_ok=True)
+    best_model=get_best_model(models_dir)
     
-        best_model_num=get_best_model(
-            os.path.join(
+    for model in models:
+        
+        save_dir=os.path.join(
+            args.artifacts_fpath,
+            "features",
+            "_".join([str(x) for x in args.train_group]),
+            args.clmbr_encoder,
+            model if model!= best_model else f"best_model_{model}"
+        )
+    
+        # check if files exist
+        if all([
+            os.path.exists(f"{save_dir}/{f}") for f in 
+            ['ehr_ml_patient_ids.gz','prediction_ids.gz','day_indices.gz','labels.gz','features.gz']
+        ]) and not args.overwrite:
+
+            print("Artifacts exist and args.overwrite is set to False. Skipping...")
+            sys.exit()
+
+        elif not all([
+            os.path.exists(f"{save_dir}/{f}") for f in 
+            ['ehr_ml_patient_ids.gz','prediction_ids.gz','day_indices.gz','labels.gz','features.gz']
+        ]) or args.overwrite: 
+
+            os.makedirs(save_dir,exist_ok=True)
+
+            # read dirs
+            ehr_ml_extract_dir=args.extracts_fpath
+
+            clmbr_model_dir = os.path.join(
                 args.artifacts_fpath,
                 "models",
                 clmbr_model_year,
                 args.clmbr_encoder,
+                model,
             )
-        )
 
-        # read dirs
-        ehr_ml_extract_dir=args.extracts_fpath
+            cohort_dir = os.path.join(
+                args.cohort_fpath,
+                args.cohort_id,
+                "cohort",
+                "cohort_split.parquet"
+            )
 
-        clmbr_model_dir = os.path.join(
-            args.artifacts_fpath,
-            "models",
-            clmbr_model_year,
-            args.clmbr_encoder,
-            best_model_num,
-        )
+            # read cohort
+            cohort = pd.read_parquet(cohort_dir)
 
-        cohort_dir = os.path.join(
-            args.cohort_fpath,
-            args.cohort_id,
-            "cohort",
-            "cohort_split.parquet"
-        )
+            ehr_ml_patient_ids={}
+            prediction_ids={}
+            day_indices={}
+            labels={}
+            features={}
 
-        # read cohort
-        cohort = pd.read_parquet(cohort_dir)
+            clmbr_model = ehr_ml.clmbr.CLMBR.from_pretrained(clmbr_model_dir)
 
-        ehr_ml_patient_ids={}
-        prediction_ids={}
-        day_indices={}
-        labels={}
-        features={}
-        
-        clmbr_model = ehr_ml.clmbr.CLMBR.from_pretrained(clmbr_model_dir)
-        
-        for task in args.tasks:
+            for task in args.tasks:
 
-            ehr_ml_patient_ids[task]={}
-            prediction_ids[task]={}
-            day_indices[task]={}
-            labels[task]={}
-            features[task]={}
-            
-            if task == 'readmission_30':
-                index_year = 'discharge_year'
-            else:
-                index_year = 'admission_year'
-            
-            for fold in ['train','val','test']:
-                
-                print(f"Featurizing task {task} fold {fold}")
-                
-                if fold in ['train','val']:
+                ehr_ml_patient_ids[task]={}
+                prediction_ids[task]={}
+                day_indices[task]={}
+                labels[task]={}
+                features[task]={}
 
-                    if fold=='train':
-
-                        df = cohort.query(
-                            f"{task}_fold_id!=['test','val','ignore'] and {index_year}==@args.train_group"
-                        ).reset_index()
-
-                    elif fold=='val':
-
-                        df = cohort.query(
-                            f"{task}_fold_id==['val'] and {index_year}==@args.train_group"
-                        ).reset_index()
-
-
-                    ehr_ml_patient_ids[task][fold], day_indices[task][fold] = convert_patient_data( 
-                        ehr_ml_extract_dir, 
-                        df['person_id'], 
-                        df['admit_date'].dt.date if task!='readmission_30' else df['discharge_date'].dt.date
-                    )
-
-                    labels[task][fold]=df[task]
-                    prediction_ids[task][fold]=df['prediction_id']
-                    
-                    assert (
-                        len(ehr_ml_patient_ids[task][fold]) == 
-                        len(labels[task][fold]) == 
-                        len(prediction_ids[task][fold])
-                    )
-
-                    features[task][fold] = clmbr_model.featurize_patients(
-                        ehr_ml_extract_dir, 
-                        np.array(ehr_ml_patient_ids[task][fold]), 
-                        np.array(day_indices[task][fold])
-                    )
-
+                if task == 'readmission_30':
+                    index_year = 'discharge_year'
                 else:
+                    index_year = 'admission_year'
 
-                    for year in [
-                        args.train_group,
-                        2009,2010,2011,2012,
-                        2013,2014,2015,2016,
-                        2017,2018,2019,2020,
-                        2021
-                        ]:
-                        
-                        df = cohort.query(f"{task}_fold_id==['test'] and {index_year}==@year")
+                for fold in ['train','val','test']:
 
-                        ehr_ml_patient_ids[task][f'test_{year}'], day_indices[task][f'test_{year}'] = convert_patient_data(
+                    print(f"Featurizing task {task} fold {fold}")
+
+                    if fold in ['train','val']:
+
+                        if fold=='train':
+
+                            df = cohort.query(
+                                f"{task}_fold_id!=['test','val','ignore'] and {index_year}==@args.train_group"
+                            ).reset_index()
+
+                        elif fold=='val':
+
+                            df = cohort.query(
+                                f"{task}_fold_id==['val'] and {index_year}==@args.train_group"
+                            ).reset_index()
+
+
+                        ehr_ml_patient_ids[task][fold], day_indices[task][fold] = convert_patient_data( 
                             ehr_ml_extract_dir, 
                             df['person_id'], 
                             df['admit_date'].dt.date if task!='readmission_30' else df['discharge_date'].dt.date
                         )
 
-                        labels[task][f'test_{year}'] = df[f'{task}'].to_numpy()
-                        prediction_ids[task][f'test_{year}']=df['prediction_id']
-                        
+                        labels[task][fold]=df[task]
+                        prediction_ids[task][fold]=df['prediction_id']
+
                         assert (
-                            len(ehr_ml_patient_ids[task][f'test_{year}']) == 
-                            len(labels[task][f'test_{year}']) == 
-                            len(prediction_ids[task][f'test_{year}'])
+                            len(ehr_ml_patient_ids[task][fold]) == 
+                            len(labels[task][fold]) == 
+                            len(prediction_ids[task][fold])
                         )
 
-                        features[task][f'test_{year}'] = clmbr_model.featurize_patients(
+                        features[task][fold] = clmbr_model.featurize_patients(
                             ehr_ml_extract_dir, 
-                            np.array(ehr_ml_patient_ids[task][f'test_{year}']), 
-                            np.array(day_indices[task][f'test_{year}'])
+                            np.array(ehr_ml_patient_ids[task][fold]), 
+                            np.array(day_indices[task][fold])
                         )
 
-        # save artifacts  
-        pickle.dump(
-            ehr_ml_patient_ids,
-            gzip.open(os.path.join(save_dir,'ehr_ml_patient_ids.gz'),'wb')
-        )
+                    else:
 
-        pickle.dump(
-            prediction_ids,
-            gzip.open(os.path.join(save_dir,'prediction_ids.gz'),'wb')
-        )
+                        for year in [
+                            args.train_group,
+                            2009,2010,2011,2012,
+                            2013,2014,2015,2016,
+                            2017,2018,2019,2020,
+                            2021
+                            ]:
 
-        pickle.dump(
-            day_indices,
-            gzip.open(os.path.join(save_dir,'day_indices.gz'),'wb')
-        )
+                            df = cohort.query(f"{task}_fold_id==['test'] and {index_year}==@year")
 
-        pickle.dump(
-            labels,
-            gzip.open(os.path.join(save_dir,'labels.gz'),'wb')
-        )
+                            ehr_ml_patient_ids[task][f'test_{year}'], day_indices[task][f'test_{year}'] = convert_patient_data(
+                                ehr_ml_extract_dir, 
+                                df['person_id'], 
+                                df['admit_date'].dt.date if task!='readmission_30' else df['discharge_date'].dt.date
+                            )
 
-        pickle.dump(
-            features,
-            gzip.open(os.path.join(save_dir,'features.gz'),'wb')
-        )
+                            labels[task][f'test_{year}'] = df[f'{task}'].to_numpy()
+                            prediction_ids[task][f'test_{year}']=df['prediction_id']
+
+                            assert (
+                                len(ehr_ml_patient_ids[task][f'test_{year}']) == 
+                                len(labels[task][f'test_{year}']) == 
+                                len(prediction_ids[task][f'test_{year}'])
+                            )
+
+                            features[task][f'test_{year}'] = clmbr_model.featurize_patients(
+                                ehr_ml_extract_dir, 
+                                np.array(ehr_ml_patient_ids[task][f'test_{year}']), 
+                                np.array(day_indices[task][f'test_{year}'])
+                            )
+
+            # save artifacts  
+            pickle.dump(
+                ehr_ml_patient_ids,
+                gzip.open(os.path.join(save_dir,'ehr_ml_patient_ids.gz'),'wb')
+            )
+
+            pickle.dump(
+                prediction_ids,
+                gzip.open(os.path.join(save_dir,'prediction_ids.gz'),'wb')
+            )
+
+            pickle.dump(
+                day_indices,
+                gzip.open(os.path.join(save_dir,'day_indices.gz'),'wb')
+            )
+
+            pickle.dump(
+                labels,
+                gzip.open(os.path.join(save_dir,'labels.gz'),'wb')
+            )
+
+            pickle.dump(
+                features,
+                gzip.open(os.path.join(save_dir,'features.gz'),'wb')
+            )

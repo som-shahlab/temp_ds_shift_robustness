@@ -1,2 +1,2 @@
-# Model Robustness to Temporal Dataset Shift 
-- Replication of MIMIC-IV findings in STARR OMOP plus additional experimentation with model training using more diverse and recent data
+# Domain Generalization does not Improve Model Robustness to Temporal Distribution Shift in Clinical Medicine
+- Replication of the findings in [Guo et al 2022](https://www.nature.com/articles/s41598-022-06484-1) using data from STARR OMOP that shows domain generalization (IRM, CORAL, and domain adversarial learning) does not improve model robustness in the presence of temporal distribution shift over standard ERM.

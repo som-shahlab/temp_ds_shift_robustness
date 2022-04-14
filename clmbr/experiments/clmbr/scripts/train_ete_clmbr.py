@@ -1,22 +1,37 @@
 import os
+import json
 import argparse
 import yaml
 import shutil
 import pdb
-import torch
+import ehr_ml
 import joblib
+import torch
 
 import pandas as pd
 import numpy as np
 
 from itertools import zip_longest
 from subprocess import (run, Popen)
-from prediction_utils.util import str2bool
-from ehr_ml.clmbr import convert_patient_data
 from sklearn.model_selection import ParameterGrid
 
+from prediction_utils.util import str2bool
+from ehr_ml.clmbr import convert_patient_data
+
+
+#------------------------------------
+# Arg parser
+#------------------------------------
+
 parser = argparse.ArgumentParser(
-    description='Train CLMBR model'
+    description='Train end-to-end CLMBR model'
+)
+
+parser.add_argument(
+    '--task',
+    type=str,
+    default='hospital_mortality',
+    help='task for end-to-end CLMRB training [hospital_mortality, icu_admission, LOS_7, readmission_30]',
 )
 
 parser.add_argument(
@@ -47,6 +62,12 @@ parser.add_argument(
     '--train_splits_fpath',
     type=str,
     default="/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/clmbr_artifacts/train_splits/"
+)
+
+parser.add_argument(
+    '--labels_fpath',
+    type=str,
+    default='/local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/experiments/clmbr/clmbr_artifacts/labels'
 )
 
 parser.add_argument(
@@ -90,13 +111,13 @@ parser.add_argument(
 parser.add_argument(
     '--n_gpu',
     type=int,
-    default=2
+    default=1
 )
 
 parser.add_argument(
     '--n_jobs',
     type=int,
-    default=12
+    default=5
 )
 
 parser.add_argument(
@@ -105,18 +126,26 @@ parser.add_argument(
     default=1
 )
 
+#-------------------------------------------------------------------
+# CLMBR model (nn.Module) and Training func
+#-------------------------------------------------------------------
+
+    
+#-------------------------------------------------------------------
+# run
+#-------------------------------------------------------------------
 if __name__ == "__main__":
     
     args = parser.parse_args()
     
     # threads
     torch.set_num_threads(1)
-    joblib.Parallel(n_jobs=1)
     
     # create train and val patient IDs
     train_splits_dir = os.path.join(
         args.train_splits_fpath,
-        "_".join(args.year_range.split("/"))
+        "_".join(args.year_range.split("/")) + '_end_to_end',
+        args.task,
     )
     
     if args.overwrite and os.path.exists(train_splits_dir):
@@ -137,20 +166,29 @@ if __name__ == "__main__":
         )
     )
     
-    df_cohort = df_cohort.assign(
-        date = pd.to_datetime(df_cohort['admit_date']).dt.date
-    )
+    if args.task == 'readmission_30':
+        df_cohort = df_cohort.assign(
+            date = pd.to_datetime(df_cohort['discharge_date']).dt.date
+        )
+        
+    else:
+        df_cohort = df_cohort.assign(
+            date = pd.to_datetime(df_cohort['admit_date']).dt.date
+        )
+    
     
     train = df_cohort.query(
-        "fold_id!=['val','test','1'] and admission_year==@year_range_list"
+        f"{args.task}_fold_id!=['val','test','ignore'] and admission_year==@year_range_list"
     )
     
+    
+    
     val = df_cohort.query(
-        "fold_id==['1'] and admission_year==@year_range_list"
+        f"{args.task}_fold_id==['val'] and admission_year==@year_range_list"
     )
     
     # convert patient ids and save to train_splits path
-    train_ids, _ = convert_patient_data(
+    train_person_ids, train_day_ids = convert_patient_data(
         args.extracts_fpath, 
         train['person_id'], 
         train['date']
@@ -164,11 +202,11 @@ if __name__ == "__main__":
         "w"
     ) as f:
         
-        for pid in train_ids:
+        for pid in train_person_ids:
             f.write("%d\n" % pid)
     
     
-    val_ids, _ = convert_patient_data(
+    val_person_ids, val_day_ids = convert_patient_data(
         args.extracts_fpath, 
         val['person_id'], 
         val['date']
@@ -182,12 +220,17 @@ if __name__ == "__main__":
         "w"
     ) as f:
         
-        for pid in val_ids:
+        for pid in val_person_ids:
             f.write("%d\n" % pid)
     
     
     # create info
-    info_dir=os.path.join(args.infos_fpath,"_".join(args.year_range.split("/")))
+    info_dir=os.path.join(
+        args.infos_fpath,
+        "_".join(args.year_range.split("/"))+'_end_to_end',
+        args.task
+    )
+    
     train_start_date=args.year_range.split("/")[0]
     train_end_date=args.year_range.split("/")[-1]
     val_start_date=args.year_range.split("/")[0]
@@ -195,7 +238,7 @@ if __name__ == "__main__":
     
     if args.overwrite and os.path.exists(info_dir):
         shutil.rmtree(info_dir, ignore_errors=True)
-
+    
     run([
         'clmbr_create_info',
         f"{args.extracts_fpath}",
@@ -210,6 +253,42 @@ if __name__ == "__main__":
         "--val_patient_file", f"{train_splits_dir}/val_patients.txt",
     ])
     
+    # create Patient Timeline dataset
+    train_labels = train[f"{args.task}"].to_numpy()
+    val_labels = val[f"{args.task}"].to_numpy()
+    
+    train_pred_ids = train['prediction_id'].to_numpy()
+    val_pred_ids = val['prediction_id'].to_numpy()
+    
+    assert(len(train_labels)==len(train_person_ids)==len(train_day_ids)==len(train_pred_ids))
+    assert(len(val_labels)==len(val_person_ids)==len(val_day_ids)==len(val_pred_ids))
+    
+    train_df = pd.DataFrame({
+        'labels':train_labels,
+        'person_ids': train_person_ids,
+        'day_ids': train_day_ids,
+        'prediction_ids': train_pred_ids,
+    })
+    
+    val_df = pd.DataFrame({
+        'labels':val_labels,
+        'person_ids': val_person_ids,
+        'day_ids': val_day_ids,
+        'prediction_ids': val_pred_ids,
+    })
+    
+    labels_dir = os.path.join(
+        args.labels_fpath,
+        "_".join(args.year_range.split("/"))+'_end_to_end',
+        args.task
+    )
+    
+    os.makedirs(labels_dir,exist_ok=True)
+    
+    train_df.to_csv(os.path.join(labels_dir,"train.csv"),index=False)
+    val_df.to_csv(os.path.join(labels_dir,"val.csv"),index=False)
+    
+    # get hyperparameter grid
     grid = list(
         ParameterGrid(
             yaml.load(
@@ -222,6 +301,7 @@ if __name__ == "__main__":
         )
     )
     
+    
     processes=[]
     
     # collect args
@@ -229,8 +309,9 @@ if __name__ == "__main__":
         
         model_dir=os.path.join(
             args.models_fpath,
-            "_".join(args.year_range.split("/")),
+            "_".join(args.year_range.split("/"))+'_end_to_end',
             args.encoder,
+            args.task,
             f"{i}"
         )
         
@@ -239,15 +320,17 @@ if __name__ == "__main__":
             os.makedirs(model_dir, exist_ok=True)
         
         p_args = [
-            'clmbr_train_model',
+            'clmbr_train_ete_model',
             model_dir,
             info_dir,
+            '--train_labels_path', f"{os.path.join(labels_dir, 'train.csv')}",
+            '--val_labels_path', f"{os.path.join(labels_dir, 'val.csv')}",
             '--lr', f"{hparams['lr']}",
             '--encoder_type', f"{hparams['encoder_type']}",
             '--size', f"{hparams['size']}",
             '--dropout', f"{hparams['dropout']}",
             '--batch_size', f"{hparams['batch_size']}",
-            '--epochs', f"{hparams['epochs']}",
+            '--epochs', f"50",
             '--l2', f"{hparams['l2']}",
             '--warmup_epochs', f"{hparams['warmup_epochs']}",
             '--code_dropout', f"{hparams['code_dropout'] if 'code_dropout' in hparams.keys() else 0.2}",
@@ -271,3 +354,4 @@ if __name__ == "__main__":
     for sub_p in zip_longest(*processes): 
         for p in filter(None, sub_p):
             p.wait()
+        

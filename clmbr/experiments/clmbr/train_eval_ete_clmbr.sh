@@ -10,13 +10,11 @@ cd /local-scratch/nigam/projects/lguo/temp_ds_shift_robustness/clmbr/experiments
 ## --------------------- job specification -------------------
 ## -----------------------------------------------------------
 
-mkdir -p ../logs/clmbr_featurize
-
-YEARS=("2009/2012")
+TASKS=("hospital_mortality" "LOS_7" "icu_admission" "readmission_30")
 
 ENCODERS=("GRU" "transformer")
 TRAIN_OVERWRITE='False'
-FEATURIZE_OVERWRITE='False'
+EVAL_OVERWRITE='False'
 
 N_GPU=2
 N_JOBS=12
@@ -25,22 +23,21 @@ N_JOBS=12
 ## ----------------------- job pipeline ----------------------
 ## -----------------------------------------------------------
 
-N_GROUPS=${#YEARS[@]}
+N_TASKS=${#TASKS[@]}
 N_ENCODERS=${#ENCODERS[@]}
 
-for (( t=0; t<$N_GROUPS; t++ )); do
+for (( t=0; t<$N_TASKS; t++ )); do
     for (( i=0; i<$N_ENCODERS; i++ )); do
-        python -u train_clmbr.py \
-            --year_range=${YEARS[$t]} \
+        python -u train_ete_clmbr.py \
+            --task=${TASKS[$t]} \
             --encoder=${ENCODERS[$i]} \
             --overwrite="$TRAIN_OVERWRITE" \
             --n_gpu="$N_GPU" \
             --n_jobs="$N_JOBS"
-        
-        python -u featurize.py \
-            --train_group=${YEARS[$t]} \
-            --clmbr_encoder=${ENCODERS[$i]} \
-            --overwrite="$FEATURIZE_OVERWRITE" \
-            >> "../logs/clmbr_featurize/${1:2:2}-${1: -2}-${TASKS[$t]}-$JOB_ID" 
     done
 done
+
+python -u evaluate_ete_clmbr.py \
+    --clmbr_encoder=${ENCODERS[$i]} \
+    --overwrite="$EVAL_OVERWRITE" \
+    --n_jobs=1

@@ -101,6 +101,7 @@ class Trainer:
 
         best_val_loss = None
         best_val_loss_epoch = None
+        epochs_since_improvement = 0
 
         pbar = (
             tqdm.tqdm(total=self.optimizer.defaults["t_total"])
@@ -110,6 +111,14 @@ class Trainer:
         loss_file = open(os.path.join(model_dir, "losses"), "w")
 
         logging.info("Start training")
+        
+        if self.model.config["early_stopping"]:
+            logging.info(
+                "Early stopping is activated - patience of {n_epochs} epochs".format(
+                    n_epochs=self.model.config["early_stopping_patience"]
+                )
+            )
+        
         for epoch in range(num_epochs):
             logging.info("About to start epoch %s", epoch)
             if pbar is not None:
@@ -134,6 +143,7 @@ class Trainer:
             if best_val_loss is None or val_loss < best_val_loss:
                 best_val_loss = val_loss
                 best_val_loss_epoch = epoch
+                epochs_since_improvement = 0
 
                 best_path = os.path.join(model_dir, "best")
                 if os.path.exists(best_path):
@@ -141,6 +151,16 @@ class Trainer:
 
                 torch.save(self.model.state_dict(), best_path)
                 logging.info("Saving best model to %s", best_path)
+            else:
+                epochs_since_improvement+=1
+                
+            # break if early stopping criterion reached
+            if (
+                self.model.config["early_stopping"] and 
+                epochs_since_improvement >= self.model.config["early_stopping_patience"]
+            ):
+                logging.info("Early stopping at epoch {epoch}".format(epoch=epoch))
+                break
 
         if pbar is not None:
             pbar.close()

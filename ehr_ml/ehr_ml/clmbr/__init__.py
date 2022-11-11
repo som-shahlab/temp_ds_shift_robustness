@@ -358,7 +358,15 @@ def train_model() -> None:
         type=float,
         help="dropout percentage (default 0)",
     )
-    
+    # early stopping
+    parser.add_argument(
+        "--early_stopping", action="store_true",
+    )
+    parser.add_argument(
+        "--early_stopping_patience", 
+        type=int,
+        default=100
+    )
 
     # optimization specification
     parser.add_argument(
@@ -538,6 +546,15 @@ def train_ete_model() -> None:
         default=0,
         type=float,
         help="dropout percentage (default 0)",
+    )
+    # early stopping
+    parser.add_argument(
+        "--early_stopping", action="store_true",
+    )
+    parser.add_argument(
+        "--early_stopping_patience", 
+        type=int,
+        default=100
     )
     # optimization specification
     parser.add_argument(

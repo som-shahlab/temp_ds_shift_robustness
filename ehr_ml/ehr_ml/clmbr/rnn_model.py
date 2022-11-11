@@ -231,7 +231,7 @@ class PatientRNN(nn.Module):
                 input_size=input_size,
                 hidden_size=config["size"],
                 num_layers=config["rnn_layers"],
-                dropout=config["dropout"] if config["rnn_layers"] > 1 else 0,
+                dropout=config["dropout"] #if config["rnn_layers"] > 1 else 0,
             )
         else:
             self.model = Decoder(
